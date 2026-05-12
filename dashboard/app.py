@@ -51,9 +51,38 @@ def fmt_pct(value: float) -> str:
 
 st.sidebar.title("Фильтры")
 
-with st.sidebar.expander("Синхронизация данных", expanded=False):
+with st.sidebar.expander("Загрузить отчёт WB (Excel)", expanded=True):
+    st.caption("Скачай в ЛК WB: Аналитика → Отчёт о реализации → Скачать")
+    uploaded_files = st.file_uploader(
+        "Выбери один или несколько .xlsx файлов",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        key="wb_excel_upload",
+    )
+    if uploaded_files and st.button("Загрузить в базу", key="btn_upload_wb"):
+        from connectors.wb_excel_parser import parse_wb_excel
+        from database.db import upsert_records
+
+        total_records = 0
+        for f in uploaded_files:
+            try:
+                with st.spinner(f"Обрабатываю {f.name}..."):
+                    records, stats = parse_wb_excel(f)
+                    upsert_records(records)
+                    total_records += len(records)
+                st.success(
+                    f"**{f.name}**: {stats['total_rows']} строк → {len(records)} записей "
+                    f"| {stats['skus']} SKU | {stats['date_from']} — {stats['date_to']}\n"
+                    f"Выручка: {stats['revenue']:,.0f} ₽ | Прибыль: {stats['net_profit']:,.0f} ₽"
+                )
+            except Exception as e:
+                st.error(f"{f.name}: {e}")
+        if total_records:
+            st.rerun()
+
+with st.sidebar.expander("API синхронизация", expanded=False):
     days_back = st.number_input("Глубина синхронизации (дней)", min_value=7, max_value=365, value=90)
-    if st.button("Синхронизировать сейчас"):
+    if st.button("Синхронизировать WB/Ozon API"):
         from normalizer import full_sync
 
         with st.spinner("Получаем данные из WB и Ozon..."):
@@ -77,12 +106,11 @@ all_data = load_data()
 if all_data.empty:
     st.title("📊 Finboard — Финансовая аналитика маркетплейсов")
     st.info(
-        "База данных пуста. Нажмите **Синхронизировать сейчас** в боковой панели "
-        "для загрузки данных из Wildberries и Ozon, или **Импорт из Google Sheets** "
-        "для загрузки исторических данных."
+        "База данных пуста. Загрузи Excel-отчёт WB через боковую панель "
+        "(скачать в ЛК WB: Аналитика → Отчёт о реализации)."
     )
     st.sidebar.markdown("---")
-    st.sidebar.info("Сначала выполните синхронизацию данных.")
+    st.sidebar.info("Загрузи Excel-файл для начала работы.")
     st.stop()
 
 min_date, max_date = get_date_range(all_data)
