@@ -40,7 +40,7 @@ def load_data(
 
     df["date"] = pd.to_datetime(df["date"])
     for col in ["revenue", "returns", "commission", "vat_commission", "acquiring",
-                "logistics", "penalties", "uderzhaniya", "cofinancing", "ad_spend", "net_profit"]:
+                "logistics", "storage", "penalties", "uderzhaniya", "cofinancing", "ad_spend", "net_profit"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         else:
@@ -126,6 +126,7 @@ def margin_by_sku(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
         vat_commission=("vat_commission", "sum"),
         acquiring=("acquiring", "sum"),
         logistics=("logistics", "sum"),
+        storage=("storage", "sum"),
         penalties=("penalties", "sum"),
         uderzhaniya=("uderzhaniya", "sum"),
         cofinancing=("cofinancing", "sum"),
@@ -194,6 +195,7 @@ def marketplace_comparison(df: pd.DataFrame) -> pd.DataFrame:
             vat_commission=("vat_commission", "sum"),
             acquiring=("acquiring", "sum"),
             logistics=("logistics", "sum"),
+            storage=("storage", "sum"),
             penalties=("penalties", "sum"),
             uderzhaniya=("uderzhaniya", "sum"),
             ad_spend=("ad_spend", "sum"),
@@ -219,6 +221,7 @@ def cost_structure(df: pd.DataFrame) -> dict:
         "vat_commission": df["vat_commission"].sum(),
         "acquiring":     df["acquiring"].sum(),
         "logistics":     df["logistics"].sum(),
+        "storage":       df["storage"].sum(),
         "penalties":     df["penalties"].sum(),
         "uderzhaniya":   df["uderzhaniya"].sum(),
         "cofinancing":   df["cofinancing"].sum(),
@@ -227,7 +230,7 @@ def cost_structure(df: pd.DataFrame) -> dict:
         "net_profit":    df["net_profit"].sum(),
     }
     if total_revenue > 0:
-        for k in ["commission", "vat_commission", "acquiring", "logistics",
+        for k in ["commission", "vat_commission", "acquiring", "logistics", "storage",
                   "penalties", "uderzhaniya", "cofinancing", "ad_spend", "returns", "net_profit"]:
             d[f"{k}_pct"] = d[k] / total_revenue * 100
     return d
@@ -235,15 +238,18 @@ def cost_structure(df: pd.DataFrame) -> dict:
 
 def abc_analysis(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
     cogs_map = cogs_map or {}
-    sku_df = margin_by_sku(df, cogs_map)[["sku", "product_name", "real_profit", "net_profit"]].copy()
     profit_col = "real_profit" if cogs_map else "net_profit"
-    sku_df = sku_df[sku_df[profit_col] > 0].sort_values(profit_col, ascending=False)
+    margin = margin_by_sku(df, cogs_map)
+    sku_df = margin[["sku", "product_name", profit_col]].copy()
+    if profit_col != "net_profit":
+        sku_df = sku_df.rename(columns={profit_col: "net_profit"})
+    sku_df = sku_df[sku_df["net_profit"] > 0].sort_values("net_profit", ascending=False)
 
     if sku_df.empty:
         return sku_df
 
-    total = sku_df[profit_col].sum()
-    sku_df["cumulative_pct"] = sku_df[profit_col].cumsum() / total * 100
+    total = sku_df["net_profit"].sum()
+    sku_df["cumulative_pct"] = sku_df["net_profit"].cumsum() / total * 100
 
     def classify(pct):
         if pct <= 80:
@@ -253,7 +259,6 @@ def abc_analysis(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
         return "C"
 
     sku_df["abc_class"] = sku_df["cumulative_pct"].apply(classify)
-    sku_df = sku_df.rename(columns={profit_col: "net_profit"})
     return sku_df.reset_index(drop=True)
 
 

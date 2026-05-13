@@ -27,6 +27,7 @@ class SaleRecord(Base):
     acquiring = Column(Float, default=0.0)         # Эквайринг
     # Logistics (total)
     logistics = Column(Float, default=0.0)
+    storage = Column(Float, default=0.0)            # Хранение + Приёмка + Возмещение издержек
     # Other deductions
     penalties = Column(Float, default=0.0)
     uderzhaniya = Column(Float, default=0.0)        # WB прочие удержания/выплаты
@@ -94,6 +95,7 @@ def _migrate():
         ("acquiring",      "DOUBLE PRECISION DEFAULT 0.0"),
         ("penalties",      "DOUBLE PRECISION DEFAULT 0.0"),
         ("uderzhaniya",    "DOUBLE PRECISION DEFAULT 0.0"),
+        ("storage",        "DOUBLE PRECISION DEFAULT 0.0"),
         ("cofinancing",    "DOUBLE PRECISION DEFAULT 0.0"),
         ("ad_spend",       "DOUBLE PRECISION DEFAULT 0.0"),
     ]

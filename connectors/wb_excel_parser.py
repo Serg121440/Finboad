@@ -120,8 +120,10 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "commission":     0.0,
                 "vat_commission": 0.0,
                 "acquiring":      0.0,
-                # Logistics (unified for display)
+                # Logistics = прямая доставка (AI) + ПВЗ обратная (AJ)
                 "logistics":      0.0,
+                # Хранение + Приёмка + Возмещение издержек (отдельная статья)
+                "storage":        0.0,
                 # Other deductions
                 "penalties":      0.0,   # штрафы WB
                 "uderzhaniya":    0.0,   # прочие удержания/выплаты WB
@@ -217,8 +219,10 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             - r["uderzhaniya"]
         )
 
-        # Unified logistics for display = all logistics-type costs
-        r["logistics"] = log_del + log_trans + pvz + stor + acc
+        # Логистика = прямая (AI) + ПВЗ обратная (AJ) — matches WB «Логистика» in summary
+        r["logistics"] = log_del + pvz
+        # Хранение + Приёмка + Возмещение издержек (separate line in cost structure)
+        r["storage"] = stor + acc + log_trans
 
     stats = {
         "total_rows":    len(df),
@@ -230,6 +234,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         "vat_commission":sum(r["vat_commission"] for r in records),
         "acquiring":     sum(r["acquiring"] for r in records),
         "logistics":     sum(r["logistics"] for r in records),
+        "storage":       sum(r["storage"] for r in records),
         "penalties":     sum(r["penalties"] for r in records),
         "uderzhaniya":   sum(r["uderzhaniya"] for r in records),
         "cofinancing":   sum(r["cofinancing"] for r in records),
