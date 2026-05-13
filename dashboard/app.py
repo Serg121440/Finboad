@@ -178,7 +178,8 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
 # 5. Очистка данных
 with st.sidebar.expander("🗑 Управление данными", expanded=False):
     src_options = ["Все данные", "Только демо-данные (source=demo)", "Только Excel (source=excel)",
-                   "Только API (source=api)", "Только Google Sheets (source=gsheets)"]
+                   "Только API (source=api)", "Только Google Sheets (source=gsheets)",
+                   "Только рекламные расходы (ad_spend)"]
     clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
 
     if st.button("🗑 Очистить", key="btn_clear", type="secondary"):
@@ -205,6 +206,9 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                             conn.execute(sqlt("DELETE FROM sales WHERE source = 'api'"))
                         elif "gsheets" in clear_target:
                             conn.execute(sqlt("DELETE FROM sales WHERE source = 'gsheets'"))
+                        elif "ad_spend" in clear_target:
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
+                            conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
