@@ -33,11 +33,21 @@ MP_LABELS = {"wb": "Wildberries", "ozon": "Ozon", "other": "Прочие"}
 MP_COLORS = {"wb": "#CB11AB", "ozon": "#005BFF", "other": "#999999"}
 
 
-def fmt_rub(v: float) -> str:
-    return f"{v:,.0f} ₽".replace(",", " ")
+def rub(v: float) -> str:
+    """Format rubles: whole number with thousands separator."""
+    return f"{int(round(v)):,}".replace(",", " ") + " ₽"
 
-def fmt_pct(v: float) -> str:
+def pct(v: float) -> str:
+    """Format percentage: 1 decimal."""
     return f"{v:.1f}%"
+
+def qty(v) -> str:
+    """Format quantity: whole number with thousands separator."""
+    return f"{int(round(v)):,}".replace(",", " ") + " шт."
+
+def num(v: float) -> str:
+    """Format number: whole with thousands separator."""
+    return f"{int(round(v)):,}".replace(",", " ")
 
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
@@ -63,11 +73,11 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     total += len(records)
                 st.success(
                     f"**{f.name}**  \n"
-                    f"{stats['total_rows']} строк → {len(records)} записей | {stats['skus']} SKU  \n"
+                    f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
                     f"Период: {stats['date_from']} — {stats['date_to']}  \n"
-                    f"Выручка: **{stats['revenue']:,.0f} ₽** | К перечислению: **{stats['net_profit']:,.0f} ₽**  \n"
-                    f"Комиссия: {stats['commission']:,.0f} ₽ | Эквайринг: {stats['acquiring']:,.0f} ₽ | "
-                    f"Логистика: {stats['logistics']:,.0f} ₽"
+                    f"Выручка: **{rub(stats['revenue'])}** | К перечислению: **{rub(stats['net_profit'])}**  \n"
+                    f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])} | "
+                    f"Логистика: {rub(stats['logistics'])}"
                 )
             except Exception as e:
                 st.error(f"{f.name}: {e}")
@@ -82,10 +92,10 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
         "Выбери .xlsx файлы рекламных расходов",
         type=["xlsx"], accept_multiple_files=True, key="wb_ads",
     )
-    st.markdown("**Распределение по SKU:**")
     ads_method = st.radio(
-        "Метод", ["Пропорционально выручке", "Без привязки к SKU (общая сумма)"],
-        key="ads_method", label_visibility="collapsed",
+        "Метод распределения по SKU",
+        ["Пропорционально выручке", "Без привязки к SKU"],
+        key="ads_method",
     )
     if ads_files and st.button("Загрузить рекламу", key="btn_wb_ads"):
         from connectors.wb_ads_parser import parse_wb_ads_excel, distribute_ad_spend_by_revenue
@@ -102,9 +112,9 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                     total += n
                 st.success(
                     f"**{f.name}**  \n"
-                    f"{stats['campaigns']} кампаний | {stats['total_rows']} строк  \n"
+                    f"{num(stats['campaigns'])} кампаний | {num(stats['total_rows'])} строк  \n"
                     f"Период: {stats['date_from']} — {stats['date_to']}  \n"
-                    f"Сумма расходов: **{stats['total_spend']:,.0f} ₽**"
+                    f"Расходы: **{rub(stats['total_spend'])}**"
                 )
             except Exception as e:
                 st.error(f"{f.name}: {e}")
@@ -155,7 +165,7 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
         missing_tokens.append("OZON_CLIENT_ID / OZON_API_KEY")
 
     if missing_tokens:
-        st.warning(f"Не заданы токены: {', '.join(missing_tokens)}. Задай в переменных окружения.")
+        st.warning(f"Не заданы токены: {', '.join(missing_tokens)}")
     else:
         days_back = st.number_input("Глубина (дней)", min_value=7, max_value=365, value=90)
         if st.button("Синхронизировать WB/Ozon"):
@@ -164,6 +174,47 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
                 results = full_sync(days_back=int(days_back))
             st.success(f"WB: {results['wb']} зап. | Ozon: {results['ozon']} зап.")
             st.rerun()
+
+# 5. Очистка данных
+with st.sidebar.expander("🗑 Управление данными", expanded=False):
+    src_options = ["Все данные", "Только демо-данные (source=demo)", "Только Excel (source=excel)",
+                   "Только API (source=api)", "Только Google Sheets (source=gsheets)"]
+    clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
+
+    if st.button("🗑 Очистить", key="btn_clear", type="secondary"):
+        st.session_state["confirm_clear"] = True
+
+    if st.session_state.get("confirm_clear"):
+        st.warning("Подтвердить удаление?")
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("✅ Да, удалить", key="btn_yes"):
+                try:
+                    from sqlalchemy import text as sqlt
+                    with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
+                        if clear_target == "Все данные":
+                            conn.execute(sqlt("DELETE FROM sales"))
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
+                            conn.execute(sqlt("DELETE FROM sync_log"))
+                        elif "demo" in clear_target:
+                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'demo'"))
+                        elif "excel" in clear_target:
+                            conn.execute(sqlt("DELETE FROM sales WHERE source IN ('excel', 'excel_distributed')"))
+                            conn.execute(sqlt("DELETE FROM ad_spend WHERE source IN ('excel', 'excel_distributed')"))
+                        elif "api" in clear_target:
+                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'api'"))
+                        elif "gsheets" in clear_target:
+                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'gsheets'"))
+                        conn.commit()
+                    st.session_state["confirm_clear"] = False
+                    st.success("Данные удалены")
+                    st.rerun()
+                except Exception as e:
+                    st.error(str(e))
+        with col_no:
+            if st.button("❌ Отмена", key="btn_no"):
+                st.session_state["confirm_clear"] = False
+                st.rerun()
 
 # ── LOAD DATA ─────────────────────────────────────────────────────────────────
 
@@ -208,7 +259,11 @@ has_cogs = bool(cogs_map)
 # ── HEADER ────────────────────────────────────────────────────────────────────
 
 st.title("📊 Finboard — Финансовая аналитика маркетплейсов")
-st.caption(f"Период: {date_from} — {date_to} | Записей: {len(df):,} | Себестоимость: {'✅' if has_cogs else '❌ не задана'}")
+st.caption(
+    f"Период: {date_from} — {date_to} | "
+    f"Записей: {num(len(df))} | "
+    f"Себестоимость: {'✅ загружена' if has_cogs else '❌ не задана'}"
+)
 
 if df.empty:
     st.warning("Нет данных для выбранных фильтров.")
@@ -216,24 +271,37 @@ if df.empty:
 
 # ── KPI ROW ───────────────────────────────────────────────────────────────────
 
-gross  = gross_revenue(df)
-net    = net_revenue(df)
-profit = total_net_profit(df)
-ads    = total_ad_spend(df)
-cogs   = total_cogs(df, cogs_map)
+gross   = gross_revenue(df)
+net     = net_revenue(df)
+profit  = total_net_profit(df)
+ads     = total_ad_spend(df)
+cogs    = total_cogs(df, cogs_map)
 r_profit = real_profit(df, cogs_map)
-costs  = cost_structure(df)
-margin = profit / net * 100 if net > 0 else 0
+costs   = cost_structure(df)
+margin  = profit / net * 100 if net > 0 else 0
 r_margin = r_profit / net * 100 if net > 0 else 0
+total_qty = int(df["quantity"].sum())
+total_returns = int(df["return_quantity"].sum())
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
-col1.metric("Выручка (брутто)", fmt_rub(gross))
-col2.metric("Выручка (нетто)", fmt_rub(net))
-col3.metric("К перечислению WB", fmt_rub(profit))
-col4.metric("Маржа (нетто)", fmt_pct(margin))
-col5.metric("Реклама (ДРР)", fmt_rub(ads), delta=f"{drr(df):.1f}%" if ads > 0 else "не загружена", delta_color="inverse")
+col1.metric("Выручка (брутто)", rub(gross))
+col2.metric("Выручка (нетто)", rub(net))
+col3.metric("К перечислению WB", rub(profit), delta=pct(margin))
+col4.metric(
+    "Продано / Возвращено",
+    f"{num(total_qty)} шт.",
+    delta=f"возвраты: {num(total_returns)} шт.",
+    delta_color="inverse" if total_returns > 0 else "off",
+    help="Общее количество проданных единиц товара за период",
+)
+col5.metric(
+    "Реклама (ДРР)",
+    rub(ads) if ads > 0 else "не загружена",
+    delta=pct(drr(df)) if ads > 0 else None,
+    delta_color="inverse",
+)
 if has_cogs:
-    col6.metric("Реальная прибыль", fmt_rub(r_profit), delta=fmt_pct(r_margin))
+    col6.metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
 else:
     col6.metric("Себестоимость", "не задана", delta="загрузи COGS", delta_color="off")
 
@@ -243,23 +311,26 @@ st.divider()
 
 st.subheader("Структура затрат")
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Комиссия WB", fmt_rub(costs["commission"]),    delta=fmt_pct(costs.get("commission_pct", 0)),    delta_color="off")
-c2.metric("НДС на комиссию", fmt_rub(costs["vat_commission"]), delta=fmt_pct(costs.get("vat_commission_pct", 0)), delta_color="off")
-c3.metric("Эквайринг",    fmt_rub(costs["acquiring"]),   delta=fmt_pct(costs.get("acquiring_pct", 0)),   delta_color="off")
-c4.metric("Логистика",    fmt_rub(costs["logistics"]),   delta=fmt_pct(costs.get("logistics_pct", 0)),   delta_color="off")
-c5.metric("Возвраты",     fmt_rub(costs["returns"]),     delta=fmt_pct(costs.get("returns_pct", 0)),     delta_color="off")
-c6.metric("Штрафы + скидки", fmt_rub(costs["penalties"] + costs["cofinancing"]),
-          delta=fmt_pct(costs.get("penalties_pct", 0) + costs.get("cofinancing_pct", 0)), delta_color="off")
+c1.metric("Комиссия WB",     rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
+c2.metric("НДС на комиссию", rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)), delta_color="off")
+c3.metric("Эквайринг",       rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
+c4.metric("Логистика",       rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off")
+c5.metric("Возвраты",        rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
+c6.metric("Штрафы + скидки",
+          rub(costs["penalties"] + costs["cofinancing"]),
+          pct(costs.get("penalties_pct", 0) + costs.get("cofinancing_pct", 0)),
+          delta_color="off")
 
 st.divider()
 
-# ── COST PIE ─────────────────────────────────────────────────────────────────
+# ── PIE + DYNAMICS ─────────────────────────────────────────────────────────────
 
 col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
-    labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика", "Возвраты", "Штрафы/Скидки", "Реклама", "К перечислению"]
-    values = [
+    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика",
+                  "Возвраты", "Штрафы/Скидки", "Реклама", "К перечислению"]
+    pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
         max(costs["acquiring"], 0),
@@ -269,9 +340,9 @@ with col_pie:
         max(costs["ad_spend"], 0),
         max(costs["net_profit"], 0),
     ]
-    if sum(values) > 0:
+    if sum(pie_values) > 0:
         fig_pie = px.pie(
-            names=labels, values=values,
+            names=pie_labels, values=pie_values,
             title="Распределение выручки",
             color_discrete_sequence=px.colors.qualitative.Set3,
         )
@@ -289,22 +360,107 @@ with col_dyn:
             label = MP_LABELS.get(mp, mp)
             color = MP_COLORS.get(mp)
             fig_daily.add_trace(go.Scatter(
-                x=sub["day"], y=sub["revenue"],
+                x=sub["day"], y=sub["revenue"].round(0),
                 name=f"Выручка {label}", mode="lines+markers",
                 line=dict(color=color, width=2),
             ))
             fig_daily.add_trace(go.Scatter(
-                x=sub["day"], y=sub["net_profit"],
+                x=sub["day"], y=sub["net_profit"].round(0),
                 name=f"К перечислению {label}", mode="lines",
                 line=dict(color=color, dash="dot", width=1.5),
             ))
         fig_daily.update_layout(
             xaxis_title="Дата", yaxis_title="₽",
+            yaxis=dict(tickformat=",.0f"),
             legend=dict(orientation="h", y=-0.25),
             hovermode="x unified", height=380,
             margin=dict(t=10),
         )
         st.plotly_chart(fig_daily, use_container_width=True)
+
+st.divider()
+
+# ── GROUPING BY CATEGORY ──────────────────────────────────────────────────────
+
+st.subheader("Анализ по категориям")
+
+if not cats:
+    st.info("Категории не определены — они берутся из поля «Предмет» в отчёте WB.")
+else:
+    cat_df = df.groupby("category").agg(
+        revenue=("revenue", "sum"),
+        returns=("returns", "sum"),
+        commission=("commission", "sum"),
+        logistics=("logistics", "sum"),
+        net_profit=("net_profit", "sum"),
+        quantity=("quantity", "sum"),
+        return_quantity=("return_quantity", "sum"),
+        skus=("sku", "nunique"),
+    ).reset_index()
+    cat_df["net_revenue"] = cat_df["revenue"] - cat_df["returns"]
+    cat_df["margin_pct"] = (
+        cat_df["net_profit"] / cat_df["net_revenue"] * 100
+    ).where(cat_df["net_revenue"] > 0, 0).round(1)
+    cat_df["return_rate_pct"] = (
+        cat_df["return_quantity"] / cat_df["quantity"] * 100
+    ).where(cat_df["quantity"] > 0, 0).round(1)
+    cat_df = cat_df.sort_values("net_profit", ascending=False)
+
+    col_cat1, col_cat2 = st.columns(2)
+    with col_cat1:
+        fig_cat_rev = px.bar(
+            cat_df, x="net_profit", y="category", orientation="h",
+            color="margin_pct",
+            color_continuous_scale="RdYlGn",
+            labels={"net_profit": "К перечислению, ₽", "category": "Категория", "margin_pct": "Маржа, %"},
+            title="К перечислению по категориям",
+            text=cat_df["net_profit"].apply(lambda v: rub(v)),
+        )
+        fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=400)
+        fig_cat_rev.update_traces(textposition="outside")
+        st.plotly_chart(fig_cat_rev, use_container_width=True)
+
+    with col_cat2:
+        fig_cat_mg = px.bar(
+            cat_df, x="margin_pct", y="category", orientation="h",
+            color="margin_pct",
+            color_continuous_scale="RdYlGn",
+            labels={"margin_pct": "Маржа, %", "category": "Категория"},
+            title="Маржинальность по категориям",
+            text=cat_df["margin_pct"].apply(lambda v: pct(v)),
+        )
+        fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=400)
+        fig_cat_mg.update_traces(textposition="outside")
+        st.plotly_chart(fig_cat_mg, use_container_width=True)
+
+    st.dataframe(
+        cat_df.rename(columns={
+            "category": "Категория",
+            "revenue": "Выручка, ₽",
+            "returns": "Возвраты, ₽",
+            "commission": "Комиссия, ₽",
+            "logistics": "Логистика, ₽",
+            "net_profit": "К перечислению, ₽",
+            "quantity": "Продано, шт.",
+            "return_quantity": "Возвращено, шт.",
+            "skus": "SKU",
+            "net_revenue": "Нетто-выручка, ₽",
+            "margin_pct": "Маржа, %",
+            "return_rate_pct": "Возвраты, %",
+        }).style.format({
+            "Выручка, ₽": lambda v: num(v),
+            "Возвраты, ₽": lambda v: num(v),
+            "Комиссия, ₽": lambda v: num(v),
+            "Логистика, ₽": lambda v: num(v),
+            "К перечислению, ₽": lambda v: num(v),
+            "Нетто-выручка, ₽": lambda v: num(v),
+            "Продано, шт.": lambda v: num(v),
+            "Возвращено, шт.": lambda v: num(v),
+            "Маржа, %": lambda v: f"{v:.1f}%",
+            "Возвраты, %": lambda v: f"{v:.1f}%",
+        }),
+        use_container_width=True, hide_index=True,
+    )
 
 st.divider()
 
@@ -323,6 +479,7 @@ if not mp_comp.empty:
             title="Выручка и к перечислению",
         )
         fig_mp.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
+        fig_mp.update_yaxes(tickformat=",.0f")
         st.plotly_chart(fig_mp, use_container_width=True)
     with col_b:
         fig_mg = px.bar(
@@ -332,17 +489,30 @@ if not mp_comp.empty:
             title="Маржинальность (нетто-выручка)",
         )
         fig_mg.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
-        fig_mg.update_yaxes(ticksuffix="%")
+        fig_mg.update_yaxes(ticksuffix="%", tickformat=".1f")
         st.plotly_chart(fig_mg, use_container_width=True)
 
     st.dataframe(
         mp_comp.assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
         .rename(columns={
-            "marketplace": "Маркетплейс", "revenue": "Выручка", "returns": "Возвраты",
-            "commission": "Комиссия WB", "vat_commission": "НДС", "acquiring": "Эквайринг",
-            "logistics": "Логистика", "penalties": "Штрафы", "ad_spend": "Реклама",
-            "net_profit": "К перечислению", "net_revenue": "Нетто-выручка",
-            "margin_pct": "Маржа, %", "quantity": "Продано",
+            "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
+            "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
+            "logistics": "Логистика, ₽", "penalties": "Штрафы, ₽", "ad_spend": "Реклама, ₽",
+            "net_profit": "К перечислению, ₽", "net_revenue": "Нетто-выручка, ₽",
+            "margin_pct": "Маржа, %", "quantity": "Продано, шт.",
+        }).style.format({
+            "Выручка, ₽": lambda v: num(v),
+            "Возвраты, ₽": lambda v: num(v),
+            "Комиссия WB, ₽": lambda v: num(v),
+            "НДС, ₽": lambda v: num(v),
+            "Эквайринг, ₽": lambda v: num(v),
+            "Логистика, ₽": lambda v: num(v),
+            "Штрафы, ₽": lambda v: num(v),
+            "Реклама, ₽": lambda v: num(v),
+            "К перечислению, ₽": lambda v: num(v),
+            "Нетто-выручка, ₽": lambda v: num(v),
+            "Продано, шт.": lambda v: num(v),
+            "Маржа, %": lambda v: f"{v:.1f}%",
         }),
         use_container_width=True, hide_index=True,
     )
@@ -366,6 +536,7 @@ if not top.empty:
         title=f"Топ-20 SKU ({profit_label})",
     )
     fig_top.update_layout(yaxis=dict(autorange="reversed"), height=600)
+    fig_top.update_xaxes(tickformat=",.0f")
     st.plotly_chart(fig_top, use_container_width=True)
 
     show_cols = ["sku", "product_name", "category", "marketplace",
@@ -373,7 +544,18 @@ if not top.empty:
                  "return_rate_pct", "commission_pct", "drr_pct",
                  "logistics_per_unit", "quantity", "return_quantity"]
     show_cols = [c for c in show_cols if c in top.columns]
-
+    fmt_map = {
+        "Выручка, ₽": lambda v: num(v),
+        "К перечислению, ₽": lambda v: num(v),
+        "Маржа WB, %": lambda v: f"{v:.1f}%",
+        "Реальная маржа, %": lambda v: f"{v:.1f}%",
+        "Возвраты, %": lambda v: f"{v:.1f}%",
+        "Комиссия, %": lambda v: f"{v:.1f}%",
+        "ДРР, %": lambda v: f"{v:.1f}%",
+        "Лог./ед, ₽": lambda v: num(v),
+        "Продано, шт.": lambda v: num(v),
+        "Возвращено, шт.": lambda v: num(v),
+    }
     st.dataframe(
         top[show_cols].rename(columns={
             "sku": "Артикул", "product_name": "Наименование", "category": "Категория",
@@ -382,8 +564,8 @@ if not top.empty:
             "real_margin_pct": "Реальная маржа, %",
             "return_rate_pct": "Возвраты, %", "commission_pct": "Комиссия, %",
             "drr_pct": "ДРР, %", "logistics_per_unit": "Лог./ед, ₽",
-            "quantity": "Продано", "return_quantity": "Возвращено",
-        }),
+            "quantity": "Продано, шт.", "return_quantity": "Возвращено, шт.",
+        }).style.format(fmt_map),
         use_container_width=True, hide_index=True,
     )
 
@@ -407,6 +589,7 @@ with col_abc1:
         )
         fig_abc.update_traces(texttemplate="%{text} SKU", textposition="outside")
         fig_abc.update_layout(showlegend=False, height=320)
+        fig_abc.update_yaxes(tickformat=",.0f")
         st.plotly_chart(fig_abc, use_container_width=True)
 
 with col_abc2:
@@ -416,6 +599,9 @@ with col_abc2:
                 "abc_class": "Класс", "sku": "Артикул",
                 "product_name": "Наименование", "net_profit": "Прибыль, ₽",
                 "cumulative_pct": "Нарастающий итог, %",
+            }).style.format({
+                "Прибыль, ₽": lambda v: num(v),
+                "Нарастающий итог, %": lambda v: f"{v:.1f}%",
             }),
             use_container_width=True, hide_index=True, height=320,
         )
@@ -435,6 +621,6 @@ with st.sidebar:
         for _, row in logs.iterrows():
             icon = "✅" if row["status"] == "ok" else "❌"
             mp = MP_LABELS.get(row["marketplace"], row["marketplace"])
-            st.caption(f"{icon} {mp}: {str(row['sync_at'])[:16]} ({row['records_count']} зап.)")
+            st.caption(f"{icon} {mp}: {str(row['sync_at'])[:16]} ({num(row['records_count'])} зап.)")
     except Exception:
         pass
