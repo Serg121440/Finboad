@@ -87,28 +87,39 @@ def init_db():
 
 
 def _migrate():
-    """Add new columns to existing DB without dropping data."""
+    """Add new columns to existing DB without dropping data. Works for both SQLite and PostgreSQL."""
     new_cols = [
-        ("vat_commission", "REAL DEFAULT 0.0"),
-        ("acquiring",      "REAL DEFAULT 0.0"),
-        ("penalties",      "REAL DEFAULT 0.0"),
-        ("cofinancing",    "REAL DEFAULT 0.0"),
-        ("ad_spend",       "REAL DEFAULT 0.0"),
+        ("vat_commission", "DOUBLE PRECISION DEFAULT 0.0"),
+        ("acquiring",      "DOUBLE PRECISION DEFAULT 0.0"),
+        ("penalties",      "DOUBLE PRECISION DEFAULT 0.0"),
+        ("cofinancing",    "DOUBLE PRECISION DEFAULT 0.0"),
+        ("ad_spend",       "DOUBLE PRECISION DEFAULT 0.0"),
     ]
     try:
-        import sqlite3
-        url = str(engine.url)
-        if "sqlite" not in url:
-            return
-        db_path = url.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        existing = [row[1] for row in cur.execute("PRAGMA table_info(sales)").fetchall()]
-        for col, typedef in new_cols:
-            if col not in existing:
-                cur.execute(f"ALTER TABLE sales ADD COLUMN {col} {typedef}")
-        conn.commit()
-        conn.close()
+        with engine.connect() as conn:
+            url = str(engine.url)
+            if "sqlite" in url:
+                result = conn.execute(text("PRAGMA table_info(sales)"))
+                existing = [row[1] for row in result.fetchall()]
+                for col, typedef in new_cols:
+                    if col not in existing:
+                        conn.execute(text(f"ALTER TABLE sales ADD COLUMN {col} REAL DEFAULT 0.0"))
+                conn.commit()
+            else:
+                # PostgreSQL — use IF NOT EXISTS via DO block
+                for col, typedef in new_cols:
+                    conn.execute(text(f"""
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name='sales' AND column_name='{col}'
+                            ) THEN
+                                ALTER TABLE sales ADD COLUMN {col} {typedef};
+                            END IF;
+                        END $$;
+                    """))
+                conn.commit()
     except Exception:
         pass
 
@@ -181,6 +192,10 @@ def upsert_cogs(records: list[dict]) -> int:
 
 
 def insert_ad_spend(records: list[dict]) -> int:
+    """
+    Save ad spend records and update ad_spend column in sales table
+    for SKU-linked records.
+    """
     session = get_session()
     try:
         count = 0
@@ -196,6 +211,19 @@ def insert_ad_spend(records: list[dict]) -> int:
                 source=rec.get("source", "excel"),
             ))
             count += 1
+
+            # Update ad_spend on the matching sales row when SKU is known
+            sku = rec.get("sku")
+            if sku:
+                rows = (
+                    session.query(SaleRecord)
+                    .filter_by(marketplace=rec.get("marketplace", "wb"), sku=sku)
+                    .all()
+                )
+                spend_per_row = float(rec.get("amount", 0)) / len(rows) if rows else 0
+                for row in rows:
+                    row.ad_spend = (row.ad_spend or 0) + spend_per_row
+
         session.commit()
         return count
     except Exception as e:

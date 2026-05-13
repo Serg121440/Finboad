@@ -114,7 +114,7 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                     f"**{f.name}**  \n"
                     f"{num(stats['campaigns'])} кампаний | {num(stats['total_rows'])} строк  \n"
                     f"Период: {stats['date_from']} — {stats['date_to']}  \n"
-                    f"Расходы: **{rub(stats['total_spend'])}"
+                    f"Расходы: **{rub(stats['total_spend'])}**"
                 )
             except Exception as e:
                 st.error(f"{f.name}: {e}")
@@ -348,7 +348,7 @@ with col_pie:
         )
         fig_pie.update_traces(textinfo="percent+label", textfont_size=11)
         fig_pie.update_layout(showlegend=False, height=380)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width="stretch")
 
 with col_dyn:
     st.markdown("**Динамика выручки и прибыли по дням**")
@@ -376,7 +376,7 @@ with col_dyn:
             hovermode="x unified", height=380,
             margin=dict(t=10),
         )
-        st.plotly_chart(fig_daily, use_container_width=True)
+        st.plotly_chart(fig_daily, width="stretch")
 
 st.divider()
 
@@ -418,7 +418,7 @@ else:
         )
         fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=400)
         fig_cat_rev.update_traces(textposition="outside")
-        st.plotly_chart(fig_cat_rev, use_container_width=True)
+        st.plotly_chart(fig_cat_rev, width="stretch")
 
     with col_cat2:
         fig_cat_mg = px.bar(
@@ -431,7 +431,7 @@ else:
         )
         fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=400)
         fig_cat_mg.update_traces(textposition="outside")
-        st.plotly_chart(fig_cat_mg, use_container_width=True)
+        st.plotly_chart(fig_cat_mg, width="stretch")
 
     st.dataframe(
         cat_df.rename(columns={
@@ -459,7 +459,7 @@ else:
             "Маржа, %": lambda v: f"{v:.1f}%",
             "Возвраты, %": lambda v: f"{v:.1f}%",
         }),
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
 st.divider()
@@ -480,7 +480,7 @@ if not mp_comp.empty:
         )
         fig_mp.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
         fig_mp.update_yaxes(tickformat=",.0f")
-        st.plotly_chart(fig_mp, use_container_width=True)
+        st.plotly_chart(fig_mp, width="stretch")
     with col_b:
         fig_mg = px.bar(
             mp_comp, x="marketplace", y="margin_pct",
@@ -490,7 +490,7 @@ if not mp_comp.empty:
         )
         fig_mg.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
         fig_mg.update_yaxes(ticksuffix="%", tickformat=".1f")
-        st.plotly_chart(fig_mg, use_container_width=True)
+        st.plotly_chart(fig_mg, width="stretch")
 
     st.dataframe(
         mp_comp.assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
@@ -514,7 +514,7 @@ if not mp_comp.empty:
             "Продано, шт.": lambda v: num(v),
             "Маржа, %": lambda v: f"{v:.1f}%",
         }),
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
 st.divider()
@@ -537,7 +537,7 @@ if not top.empty:
     )
     fig_top.update_layout(yaxis=dict(autorange="reversed"), height=600)
     fig_top.update_xaxes(tickformat=",.0f")
-    st.plotly_chart(fig_top, use_container_width=True)
+    st.plotly_chart(fig_top, width="stretch")
 
     show_cols = ["sku", "product_name", "category", "marketplace",
                  "revenue", "net_profit", "margin_pct", "real_margin_pct",
@@ -566,7 +566,7 @@ if not top.empty:
             "drr_pct": "ДРР, %", "logistics_per_unit": "Лог./ед, ₽",
             "quantity": "Продано, шт.", "return_quantity": "Возвращено, шт.",
         }).style.format(fmt_map),
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
 st.divider()
@@ -590,7 +590,7 @@ with col_abc1:
         fig_abc.update_traces(texttemplate="%{text} SKU", textposition="outside")
         fig_abc.update_layout(showlegend=False, height=320)
         fig_abc.update_yaxes(tickformat=",.0f")
-        st.plotly_chart(fig_abc, use_container_width=True)
+        st.plotly_chart(fig_abc, width="stretch")
 
 with col_abc2:
     if not abc.empty:
@@ -603,7 +603,7 @@ with col_abc2:
                 "Прибыль, ₽": lambda v: num(v),
                 "Нарастающий итог, %": lambda v: f"{v:.1f}%",
             }),
-            use_container_width=True, hide_index=True, height=320,
+            width="stretch", hide_index=True, height=320,
         )
 
 # ── SIDEBAR SYNC LOG ──────────────────────────────────────────────────────────
