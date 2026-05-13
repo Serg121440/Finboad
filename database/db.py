@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    create_engine, Column, String, Float, Date, DateTime, Integer, text
+    create_engine, Column, String, Float, Date, DateTime, Integer, text, func
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
@@ -193,15 +193,36 @@ def upsert_cogs(records: list[dict]) -> int:
 
 def insert_ad_spend(records: list[dict]) -> int:
     """
-    Save ad spend records and update ad_spend column in sales table
-    for SKU-linked records.
+    Upsert ad spend records: delete existing records for the same date range
+    and marketplace, then insert fresh ones and recalculate sales.ad_spend.
+    Re-uploading the same file is safe — no double-counting.
     """
+    if not records:
+        return 0
+
     session = get_session()
     try:
-        count = 0
+        marketplace = records[0].get("marketplace", "wb")
+        dates = [r["date"] for r in records]
+        date_from = min(dates)
+        date_to = max(dates)
+
+        # Remove old records covering this period to allow re-upload
+        session.query(AdSpend).filter(
+            AdSpend.marketplace == marketplace,
+            AdSpend.date >= date_from,
+            AdSpend.date <= date_to,
+        ).delete(synchronize_session=False)
+
+        # Reset ad_spend on all sales rows for this marketplace
+        session.query(SaleRecord).filter_by(marketplace=marketplace).update(
+            {"ad_spend": 0.0}, synchronize_session=False
+        )
+
+        # Insert fresh records
         for rec in records:
             session.add(AdSpend(
-                marketplace=rec.get("marketplace", "wb"),
+                marketplace=marketplace,
                 date=rec["date"],
                 campaign_id=str(rec.get("campaign_id", "")),
                 campaign_name=rec.get("campaign_name", ""),
@@ -210,22 +231,29 @@ def insert_ad_spend(records: list[dict]) -> int:
                 sku=rec.get("sku"),
                 source=rec.get("source", "excel"),
             ))
-            count += 1
 
-            # Update ad_spend on the matching sales row when SKU is known
-            sku = rec.get("sku")
-            if sku:
-                rows = (
-                    session.query(SaleRecord)
-                    .filter_by(marketplace=rec.get("marketplace", "wb"), sku=sku)
-                    .all()
-                )
-                spend_per_row = float(rec.get("amount", 0)) / len(rows) if rows else 0
-                for row in rows:
-                    row.ad_spend = (row.ad_spend or 0) + spend_per_row
+        session.flush()
+
+        # Re-aggregate ad spend per SKU from the whole ad_spend table
+        sku_totals = (
+            session.query(AdSpend.sku, func.sum(AdSpend.amount).label("total"))
+            .filter(AdSpend.marketplace == marketplace, AdSpend.sku.isnot(None))
+            .group_by(AdSpend.sku)
+            .all()
+        )
+        for sku, total in sku_totals:
+            sale_rows = (
+                session.query(SaleRecord)
+                .filter_by(marketplace=marketplace, sku=sku)
+                .all()
+            )
+            if sale_rows:
+                per_row = total / len(sale_rows)
+                for row in sale_rows:
+                    row.ad_spend = per_row
 
         session.commit()
-        return count
+        return len(records)
     except Exception as e:
         session.rollback()
         raise e
