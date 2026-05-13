@@ -123,7 +123,8 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 # Logistics (unified for display)
                 "logistics":      0.0,
                 # Other deductions
-                "penalties":      0.0,   # штрафы + удержания
+                "penalties":      0.0,   # штрафы WB
+                "uderzhaniya":    0.0,   # прочие удержания/выплаты WB
                 "cofinancing":    0.0,   # скидки/лояльность/промо
                 # Quantities
                 "quantity":       0,
@@ -186,8 +187,8 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         rec["_storage"]      += storage      # «Хранение» rows
         rec["_acceptance"]   += acceptance   # «Обработка товара» rows
 
-        # Penalties + удержания merged (both are seller deductions)
-        rec["penalties"]     += penalties + uderzhaniya
+        rec["penalties"]     += penalties
+        rec["uderzhaniya"]   += uderzhaniya
 
         # Cofinancing / loyalty / promo (informational)
         rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
@@ -213,6 +214,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             - stor
             - acc
             - r["penalties"]
+            - r["uderzhaniya"]
         )
 
         # Unified logistics for display = all logistics-type costs
@@ -229,6 +231,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         "acquiring":     sum(r["acquiring"] for r in records),
         "logistics":     sum(r["logistics"] for r in records),
         "penalties":     sum(r["penalties"] for r in records),
+        "uderzhaniya":   sum(r["uderzhaniya"] for r in records),
         "cofinancing":   sum(r["cofinancing"] for r in records),
         "net_profit":    sum(r["net_profit"] for r in records),
         "quantity":      sum(r["quantity"] for r in records),

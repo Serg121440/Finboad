@@ -40,7 +40,7 @@ def load_data(
 
     df["date"] = pd.to_datetime(df["date"])
     for col in ["revenue", "returns", "commission", "vat_commission", "acquiring",
-                "logistics", "penalties", "cofinancing", "ad_spend", "net_profit"]:
+                "logistics", "penalties", "uderzhaniya", "cofinancing", "ad_spend", "net_profit"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         else:
@@ -127,6 +127,7 @@ def margin_by_sku(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
         acquiring=("acquiring", "sum"),
         logistics=("logistics", "sum"),
         penalties=("penalties", "sum"),
+        uderzhaniya=("uderzhaniya", "sum"),
         cofinancing=("cofinancing", "sum"),
         ad_spend=("ad_spend", "sum"),
         net_profit=("net_profit", "sum"),
@@ -194,6 +195,7 @@ def marketplace_comparison(df: pd.DataFrame) -> pd.DataFrame:
             acquiring=("acquiring", "sum"),
             logistics=("logistics", "sum"),
             penalties=("penalties", "sum"),
+            uderzhaniya=("uderzhaniya", "sum"),
             ad_spend=("ad_spend", "sum"),
             net_profit=("net_profit", "sum"),
             quantity=("quantity", "sum"),
@@ -201,13 +203,12 @@ def marketplace_comparison(df: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     agg["net_revenue"] = agg["revenue"] - agg["returns"]
-    # Fix: margin on net_revenue, not gross revenue
     agg["margin_pct"] = np.where(
         agg["net_revenue"] > 0,
         agg["net_profit"] / agg["net_revenue"] * 100,
         0,
     ).round(2)
-    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["penalties"]
+    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["penalties"] + agg["uderzhaniya"]
     return agg
 
 
@@ -219,6 +220,7 @@ def cost_structure(df: pd.DataFrame) -> dict:
         "acquiring":     df["acquiring"].sum(),
         "logistics":     df["logistics"].sum(),
         "penalties":     df["penalties"].sum(),
+        "uderzhaniya":   df["uderzhaniya"].sum(),
         "cofinancing":   df["cofinancing"].sum(),
         "ad_spend":      df["ad_spend"].sum(),
         "returns":       df["returns"].sum(),
@@ -226,7 +228,7 @@ def cost_structure(df: pd.DataFrame) -> dict:
     }
     if total_revenue > 0:
         for k in ["commission", "vat_commission", "acquiring", "logistics",
-                  "penalties", "cofinancing", "ad_spend", "returns", "net_profit"]:
+                  "penalties", "uderzhaniya", "cofinancing", "ad_spend", "returns", "net_profit"]:
             d[f"{k}_pct"] = d[k] / total_revenue * 100
     return d
 
