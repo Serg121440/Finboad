@@ -75,6 +75,7 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     f"**{f.name}**  \n"
                     f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
                     f"Период: {stats['date_from']} — {stats['date_to']}  \n"
+                    f"Продано: **{num(stats['quantity'])} шт.** | Возвраты: {num(stats['return_quantity'])} шт.  \n"
                     f"Выручка: **{rub(stats['revenue'])}** | К перечислению: **{rub(stats['net_profit'])}**  \n"
                     f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])} | "
                     f"Логистика: {rub(stats['logistics'])}"
@@ -178,7 +179,8 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
 # 5. Очистка данных
 with st.sidebar.expander("🗑 Управление данными", expanded=False):
     src_options = ["Все данные", "Только демо-данные (source=demo)", "Только Excel (source=excel)",
-                   "Только API (source=api)", "Только Google Sheets (source=gsheets)"]
+                   "Только API (source=api)", "Только Google Sheets (source=gsheets)",
+                   "Только рекламные расходы (ad_spend)"]
     clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
 
     if st.button("🗑 Очистить", key="btn_clear", type="secondary"):
@@ -205,6 +207,9 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                             conn.execute(sqlt("DELETE FROM sales WHERE source = 'api'"))
                         elif "gsheets" in clear_target:
                             conn.execute(sqlt("DELETE FROM sales WHERE source = 'gsheets'"))
+                        elif "ad_spend" in clear_target:
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
+                            conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
@@ -292,7 +297,7 @@ col4.metric(
     f"{num(total_qty)} шт.",
     delta=f"возвраты: {num(total_returns)} шт.",
     delta_color="inverse" if total_returns > 0 else "off",
-    help="Общее количество проданных единиц товара за период",
+    help="Количество товаров с Типом документа = Продажа",
 )
 col5.metric(
     "Реклама (ДРР)",
@@ -316,7 +321,7 @@ c2.metric("НДС на комиссию", rub(costs["vat_commission"]), pct(cost
 c3.metric("Эквайринг",       rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
 c4.metric("Логистика",       rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off")
 c5.metric("Возвраты",        rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
-c6.metric("Штрафы + скидки",
+c6.metric("Штрафы + удержания",
           rub(costs["penalties"] + costs["cofinancing"]),
           pct(costs.get("penalties_pct", 0) + costs.get("cofinancing_pct", 0)),
           delta_color="off")
@@ -329,7 +334,7 @@ col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
     pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика",
-                  "Возвраты", "Штрафы/Скидки", "Реклама", "К перечислению"]
+                  "Возвраты", "Штрафы/Удержания", "Реклама", "К перечислению"]
     pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
@@ -497,7 +502,7 @@ if not mp_comp.empty:
         .rename(columns={
             "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
             "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
-            "logistics": "Логистика, ₽", "penalties": "Штрафы, ₽", "ad_spend": "Реклама, ₽",
+            "logistics": "Логистика, ₽", "penalties": "Штрафы+Удержания, ₽", "ad_spend": "Реклама, ₽",
             "net_profit": "К перечислению, ₽", "net_revenue": "Нетто-выручка, ₽",
             "margin_pct": "Маржа, %", "quantity": "Продано, шт.",
         }).style.format({
@@ -507,7 +512,7 @@ if not mp_comp.empty:
             "НДС, ₽": lambda v: num(v),
             "Эквайринг, ₽": lambda v: num(v),
             "Логистика, ₽": lambda v: num(v),
-            "Штрафы, ₽": lambda v: num(v),
+            "Штрафы+Удержания, ₽": lambda v: num(v),
             "Реклама, ₽": lambda v: num(v),
             "К перечислению, ₽": lambda v: num(v),
             "Нетто-выручка, ₽": lambda v: num(v),

@@ -1,17 +1,8 @@
 """Parser for WB Excel detailed sales report (Отчёт о реализации).
 
-Captures ALL cost components per the official WB commission structure:
-- Комиссия WB (ВВ без НДС)
-- НДС на комиссию
-- Эквайринг (компенсация платёжных услуг)
-- Логистика до клиента
-- Логистика возврата / ПВЗ
-- Хранение
-- Приёмка
-- Перевозка / складские операции
-- Штрафы
-- Корректировки ВВ
-- Скидки (софинансирование, лояльность, промокоды)
+net_profit = К_перечислению(Продажа) − К_перечислению(Возврат)
+             − логистика − хранение − приёмка − удержания − штрафы
+This matches WB's "Итого к оплате" exactly.
 """
 
 import pandas as pd
@@ -27,36 +18,36 @@ WB_COLUMNS = {
     "name":         "Название",
     # Тип документа и дата
     "doc_type":     "Тип документа",
+    "reason":       "Обоснование для оплаты",
     "sale_date":    "Дата продажи",
     # Количество
     "quantity":     "Кол-во",
-    "deliveries":   "Количество доставок",
-    "returns_qty":  "Количество возврата",
     # Цены
-    "retail_price": "Цена розничная",
     "revenue":      "Вайлдберриз реализовал Товар (Пр)",
-    # К перечислению
+    # К перечислению (per row — already has commission/vat/acquiring deducted)
     "net_to_seller": "К перечислению Продавцу за реализованный Товар",
-    # Комиссия WB
-    "commission":   "Вознаграждение Вайлдберриз (ВВ), без НДС",
-    "vat_commission": "НДС с Вознаграждения Вайлдберриз",
-    "commission_adj": "Корректировка Вознаграждения Вайлдберриз",
-    # Эквайринг
-    "acquiring":    "Компенсация платёжных услуг",
-    # Логистика
-    "logistics":    "Услуги по доставке товара покупателю",
-    "pvz_returns":  "Возмещение за выдачу и возврат товаров на ПВЗ",
-    "transport":    "Возмещение издержек по перевозке",
-    # Хранение и приёмка
-    "storage":      "Хранение",
-    "acceptance":   "Операции на приемке",
-    # Штрафы
-    "penalties":    "Общая сумма штрафов",
-    # Скидки (удержания продавца)
-    "cofinancing":  "Скидка по программе софинансирования",
-    "loyalty_cost": "Стоимость участия в программе лояльности",
-    "loyalty_pts":  "Сумма баллов, удержанных по программе лояльности",
-    "promo":        "Скидка за промокод",
+    # Комиссия WB (информационно)
+    "commission":    "Вознаграждение Вайлдберриз (ВВ), без НДС",
+    "vat_commission":"НДС с Вознаграждения Вайлдберриз",
+    "commission_adj":"Корректировка Вознаграждения Вайлдберриз",
+    # Эквайринг (информационно)
+    "acquiring":     "Компенсация платёжных услуг",
+    # Логистика — отдельные строки
+    "logistics":     "Услуги по доставке товара покупателю",   # строки «Логистика»
+    "pvz_returns":   "Возмещение за выдачу и возврат товаров на ПВЗ",
+    "transport":     "Возмещение издержек по перевозке",        # строки «Возмещение издержек»
+    # Хранение и приёмка — отдельные строки
+    "storage":       "Хранение",
+    "acceptance":    "Операции на приемке",
+    # Штрафы и удержания
+    "penalties":     "Общая сумма штрафов",
+    "uderzhaniya":   "Удержания",                               # «Прочие удержания/выплаты»
+    # Скидки (информационно)
+    "cofinancing":   "Скидка по программе софинансирования",
+    "loyalty_cost":  "Стоимость участия в программе лояльности",
+    "loyalty_pts":   "Сумма баллов, удержанных по программе лояльности",
+    "loyalty_comp":  "Компенсация скидки по программе лояльности",
+    "promo":         "Скидка за промокод",
 }
 
 
@@ -110,7 +101,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         except Exception:
             continue
 
-        sku = _safe_sku(row.get(col.get("sku", ""), None))
+        sku      = _safe_sku(row.get(col.get("sku", ""), None))
         doc_type = str(row.get(col.get("doc_type", ""), "")).strip()
 
         key = ("wb", sale_date, sku)
@@ -125,93 +116,125 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "revenue":        0.0,
                 "returns":        0.0,
                 "net_profit":     0.0,
-                # Commission breakdown
-                "commission":     0.0,   # ВВ без НДС
-                "vat_commission": 0.0,   # НДС на комиссию
-                "acquiring":      0.0,   # Эквайринг
-                # Logistics breakdown
-                "logistics":      0.0,   # Доставка до клиента
-                "pvz_returns":    0.0,   # Выдача/возврат ПВЗ
-                "storage":        0.0,   # Хранение
-                "acceptance":     0.0,   # Приёмка
-                # Deductions
-                "penalties":      0.0,   # Штрафы
-                "cofinancing":    0.0,   # Скидки/лояльность/промо
+                # Commission breakdown (informational)
+                "commission":     0.0,
+                "vat_commission": 0.0,
+                "acquiring":      0.0,
+                # Logistics (unified for display)
+                "logistics":      0.0,
+                # Other deductions
+                "penalties":      0.0,   # штрафы + удержания
+                "cofinancing":    0.0,   # скидки/лояльность/промо
                 # Quantities
                 "quantity":       0,
                 "return_quantity": 0,
                 "source":         "excel",
+                # Temp fields for net_profit calculation (filtered out before DB save)
+                "_k_sales":      0.0,
+                "_k_returns":    0.0,
+                "_log_delivery": 0.0,
+                "_log_transport":0.0,
+                "_pvz":          0.0,
+                "_storage":      0.0,
+                "_acceptance":   0.0,
             }
 
         rec = aggregated[key]
 
-        revenue      = _safe_float(row.get(col.get("revenue", ""), 0))
-        net          = _safe_float(row.get(col.get("net_to_seller", ""), 0))
-        commission   = abs(_safe_float(row.get(col.get("commission", ""), 0)))
-        vat_comm     = abs(_safe_float(row.get(col.get("vat_commission", ""), 0)))
-        comm_adj     = _safe_float(row.get(col.get("commission_adj", ""), 0))
-        acquiring    = abs(_safe_float(row.get(col.get("acquiring", ""), 0)))
-        logistics    = abs(_safe_float(row.get(col.get("logistics", ""), 0)))
-        pvz          = abs(_safe_float(row.get(col.get("pvz_returns", ""), 0)))
-        transport    = abs(_safe_float(row.get(col.get("transport", ""), 0)))
-        storage      = abs(_safe_float(row.get(col.get("storage", ""), 0)))
-        acceptance   = abs(_safe_float(row.get(col.get("acceptance", ""), 0)))
-        penalties    = abs(_safe_float(row.get(col.get("penalties", ""), 0)))
-        cofinancing  = abs(_safe_float(row.get(col.get("cofinancing", ""), 0)))
-        loyalty_cost = abs(_safe_float(row.get(col.get("loyalty_cost", ""), 0)))
-        loyalty_pts  = abs(_safe_float(row.get(col.get("loyalty_pts", ""), 0)))
-        promo        = abs(_safe_float(row.get(col.get("promo", ""), 0)))
-        qty          = int(_safe_float(row.get(col.get("quantity", ""), 0)))
-        ret_qty      = int(_safe_float(row.get(col.get("returns_qty", ""), 0)))
+        revenue     = _safe_float(row.get(col.get("revenue", ""), 0))
+        net         = _safe_float(row.get(col.get("net_to_seller", ""), 0))
+        commission  = _safe_float(row.get(col.get("commission", ""), 0))
+        vat_comm    = _safe_float(row.get(col.get("vat_commission", ""), 0))
+        comm_adj    = _safe_float(row.get(col.get("commission_adj", ""), 0))
+        acquiring   = abs(_safe_float(row.get(col.get("acquiring", ""), 0)))
+        logistics   = abs(_safe_float(row.get(col.get("logistics", ""), 0)))
+        pvz         = abs(_safe_float(row.get(col.get("pvz_returns", ""), 0)))
+        transport   = abs(_safe_float(row.get(col.get("transport", ""), 0)))
+        storage     = abs(_safe_float(row.get(col.get("storage", ""), 0)))
+        acceptance  = abs(_safe_float(row.get(col.get("acceptance", ""), 0)))
+        penalties   = abs(_safe_float(row.get(col.get("penalties", ""), 0)))
+        uderzhaniya = abs(_safe_float(row.get(col.get("uderzhaniya", ""), 0)))
+        cofinancing = abs(_safe_float(row.get(col.get("cofinancing", ""), 0)))
+        loyalty_cost= abs(_safe_float(row.get(col.get("loyalty_cost", ""), 0)))
+        loyalty_pts = abs(_safe_float(row.get(col.get("loyalty_pts", ""), 0)))
+        loyalty_comp= abs(_safe_float(row.get(col.get("loyalty_comp", ""), 0)))
+        promo       = abs(_safe_float(row.get(col.get("promo", ""), 0)))
+        qty         = int(_safe_float(row.get(col.get("quantity", ""), 0)))
 
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
         if is_return:
-            rec["returns"] += abs(revenue)
-            rec["return_quantity"] += max(ret_qty, abs(qty))
-        else:
-            rec["revenue"] += revenue
-            rec["quantity"] += qty
+            # Return: revenue is deducted from seller, net is also deducted
+            rec["returns"]         += abs(revenue)
+            rec["return_quantity"] += abs(qty)
+            rec["_k_returns"]      += abs(net)   # will be subtracted from net_profit
+        elif doc_type == "Продажа":
+            # Only actual sales contribute to quantity and revenue
+            rec["revenue"]   += revenue
+            rec["quantity"]  += qty
+            rec["_k_sales"]  += net
 
-        # Commission components
-        rec["commission"]   += commission + abs(comm_adj)
-        rec["vat_commission"] += vat_comm
-        rec["acquiring"]    += acquiring
+        # Commission components (informational — already embedded in К перечислению)
+        rec["commission"]    += abs(commission) + abs(comm_adj)
+        rec["vat_commission"]+= abs(vat_comm)
+        rec["acquiring"]     += acquiring
 
-        # Logistics components
-        rec["logistics"]  += logistics + transport
-        rec["pvz_returns"] += pvz
-        rec["storage"]    += storage
-        rec["acceptance"] += acceptance
+        # Cost rows — used both for display (logistics) and net_profit deduction
+        rec["_log_delivery"] += logistics    # «Логистика» rows — Услуги по доставке
+        rec["_log_transport"]+= transport    # «Возмещение издержек» rows
+        rec["_pvz"]          += pvz          # ПВЗ выдача/возврат
+        rec["_storage"]      += storage      # «Хранение» rows
+        rec["_acceptance"]   += acceptance   # «Обработка товара» rows
 
-        # Other deductions
-        rec["penalties"]    += penalties
-        rec["cofinancing"]  += cofinancing + loyalty_cost + loyalty_pts + promo
+        # Penalties + удержания merged (both are seller deductions)
+        rec["penalties"]     += penalties + uderzhaniya
 
-        # Net to seller (as reported by WB — most accurate)
-        rec["net_profit"] += net - penalties
+        # Cofinancing / loyalty / promo (informational)
+        rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
 
+    # Finalize records
     records = list(aggregated.values())
-
-    # Total logistics for the unified `logistics` field used by normalizer
     for r in records:
-        r["logistics"] = r["logistics"] + r["pvz_returns"] + r["storage"] + r["acceptance"]
+        k_sales   = r.pop("_k_sales", 0)
+        k_returns = r.pop("_k_returns", 0)
+        log_del   = r.pop("_log_delivery", 0)
+        log_trans = r.pop("_log_transport", 0)
+        pvz       = r.pop("_pvz", 0)
+        stor      = r.pop("_storage", 0)
+        acc       = r.pop("_acceptance", 0)
+
+        # net_profit = actual payout (matches WB «Итого к оплате»)
+        # К перечислению per-sale already includes: revenue − commission − vat − acquiring − sofin
+        # We additionally deduct: logistics_delivery + storage + acceptance + uderzhaniya + penalties
+        r["net_profit"] = (
+            k_sales
+            - k_returns
+            - log_del
+            - stor
+            - acc
+            - r["penalties"]
+        )
+
+        # Unified logistics for display = all logistics-type costs
+        r["logistics"] = log_del + log_trans + pvz + stor + acc
 
     stats = {
-        "total_rows":   len(df),
-        "records":      len(records),
-        "revenue":      sum(r["revenue"] for r in records),
-        "returns":      sum(r["returns"] for r in records),
-        "commission":   sum(r["commission"] for r in records),
-        "vat_commission": sum(r["vat_commission"] for r in records),
-        "acquiring":    sum(r["acquiring"] for r in records),
-        "logistics":    sum(r["logistics"] for r in records),
-        "penalties":    sum(r["penalties"] for r in records),
-        "cofinancing":  sum(r["cofinancing"] for r in records),
-        "net_profit":   sum(r["net_profit"] for r in records),
-        "skus":         len(set(r["sku"] for r in records)),
-        "date_from":    min(r["date"] for r in records) if records else None,
-        "date_to":      max(r["date"] for r in records) if records else None,
+        "total_rows":    len(df),
+        "records":       len(records),
+        "skus":          len(set(r["sku"] for r in records)),
+        "revenue":       sum(r["revenue"] for r in records),
+        "returns":       sum(r["returns"] for r in records),
+        "commission":    sum(r["commission"] for r in records),
+        "vat_commission":sum(r["vat_commission"] for r in records),
+        "acquiring":     sum(r["acquiring"] for r in records),
+        "logistics":     sum(r["logistics"] for r in records),
+        "penalties":     sum(r["penalties"] for r in records),
+        "cofinancing":   sum(r["cofinancing"] for r in records),
+        "net_profit":    sum(r["net_profit"] for r in records),
+        "quantity":      sum(r["quantity"] for r in records),
+        "return_quantity":sum(r["return_quantity"] for r in records),
+        "date_from":     min(r["date"] for r in records) if records else None,
+        "date_to":       max(r["date"] for r in records) if records else None,
     }
 
     return records, stats
