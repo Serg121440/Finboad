@@ -22,6 +22,7 @@ WB_COLUMNS = {
     "sale_date":    "Дата продажи",
     # Количество
     "quantity":     "Кол-во",
+    "qty_return":   "Количество возврата",   # физическое кол-во возвратов (колонка AJ)
     # Цены
     "revenue":      "Вайлдберриз реализовал Товар (Пр)",
     # К перечислению (per row — already has commission/vat/acquiring deducted)
@@ -164,6 +165,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         loyalty_comp= abs(_safe_float(row.get(col.get("loyalty_comp", ""), 0)))
         promo       = abs(_safe_float(row.get(col.get("promo", ""), 0)))
         qty         = int(_safe_float(row.get(col.get("quantity", ""), 0)))
+        qty_return  = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
 
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
@@ -178,8 +180,11 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             rec["quantity"]  += qty
             rec["_k_sales"]  += net
 
-        # Physical return count: PVZ fee rows (AJ column) track items returned via PVZ
-        if pvz > 0:
+        # Physical return count: use dedicated «Количество возврата» column (AJ);
+        # fall back to pvz>0 + qty for older reports that don't have that column.
+        if qty_return > 0:
+            rec["return_quantity"] += qty_return
+        elif pvz > 0 and qty > 0:
             rec["return_quantity"] += abs(qty)
 
         # Commission components (informational — already embedded in К перечислению)
@@ -200,8 +205,11 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         # Cofinancing / loyalty / promo (informational)
         rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
 
-    # Finalize records
-    records = list(aggregated.values())
+    # Finalize records — drop service rows with no valid product SKU.
+    # WB uses sku=0 for logistics/storage/acceptance rows not tied to a product;
+    # "unknown" means the Код номенклатуры column was blank.
+    # These rows have no revenue/returns/quantity and only pollute category totals.
+    records = [v for v in aggregated.values() if v["sku"] not in ("0", "unknown")]
     for r in records:
         k_sales   = r.pop("_k_sales", 0)
         k_returns = r.pop("_k_returns", 0)
