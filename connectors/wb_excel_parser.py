@@ -22,7 +22,8 @@ WB_COLUMNS = {
     "sale_date":    "Дата продажи",
     # Количество
     "quantity":     "Кол-во",
-    "qty_return":   "Количество возврата",   # физическое кол-во возвратов (колонка AJ)
+    "qty_delivery": "Количество доставки",   # прямая доставка покупателю (колонка AI)
+    "qty_return":   "Количество возврата",   # физический возврат через ПВЗ (колонка AJ)
     # Цены
     "revenue":      "Вайлдберриз реализовал Товар (Пр)",
     # К перечислению (per row — already has commission/vat/acquiring deducted)
@@ -164,8 +165,9 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         loyalty_pts = abs(_safe_float(row.get(col.get("loyalty_pts", ""), 0)))
         loyalty_comp= abs(_safe_float(row.get(col.get("loyalty_comp", ""), 0)))
         promo       = abs(_safe_float(row.get(col.get("promo", ""), 0)))
-        qty         = int(_safe_float(row.get(col.get("quantity", ""), 0)))
-        qty_return  = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
+        qty          = int(_safe_float(row.get(col.get("quantity", ""), 0)))
+        qty_delivery = int(_safe_float(row.get(col.get("qty_delivery", ""), 0)))
+        qty_return   = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
 
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
@@ -180,10 +182,14 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             rec["quantity"]  += qty
             rec["_k_sales"]  += net
 
-        # Physical return count: use dedicated «Количество возврата» column (AJ);
-        # fall back to pvz>0 + qty for older reports that don't have that column.
-        if qty_return > 0:
-            rec["return_quantity"] += qty_return
+        # Physical return count: only rows where Количество возврата > 0 AND
+        # Количество доставки == 0 (return logistics row, not a forward delivery).
+        # Forward delivery rows also populate «Количество возврата» in some WB
+        # report versions, causing inflated counts when not filtered.
+        # Fall back to pvz>0 for older reports that lack these columns.
+        if "qty_return" in col and "qty_delivery" in col:
+            if qty_return > 0 and qty_delivery == 0:
+                rec["return_quantity"] += qty_return
         elif pvz > 0 and qty > 0:
             rec["return_quantity"] += abs(qty)
 
