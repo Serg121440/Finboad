@@ -22,7 +22,8 @@ WB_COLUMNS = {
     "sale_date":    "Дата продажи",
     # Количество
     "quantity":     "Кол-во",
-    "qty_return":   "Количество возврата",   # физическое кол-во возвратов (колонка AJ)
+    "qty_delivery": "Количество доставок",   # прямая доставка покупателю (колонка AI)
+    "qty_return":   "Количество возврата",   # физический возврат через ПВЗ (колонка AJ)
     # Цены
     "revenue":      "Вайлдберриз реализовал Товар (Пр)",
     # К перечислению (per row — already has commission/vat/acquiring deducted)
@@ -122,14 +123,14 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "vat_commission": 0.0,
                 "acquiring":      0.0,
                 # Logistics breakdown
-                "logistics":         0.0,   # Общая = прямая (AI) + ПВЗ обратная (AJ)
-                "logistics_direct":  0.0,   # Прямая доставка (AI)
+                "logistics":         0.0,
+                "logistics_direct":  0.0,
                 # Хранение + Приёмка + Возмещение издержек (отдельная статья)
                 "storage":           0.0,
                 # Other deductions
-                "penalties":      0.0,   # штрафы WB
-                "uderzhaniya":    0.0,   # прочие удержания/выплаты WB
-                "cofinancing":    0.0,   # скидки/лояльность/промо
+                "penalties":      0.0,
+                "uderzhaniya":    0.0,
+                "cofinancing":    0.0,
                 # Quantities
                 "quantity":       0,
                 "return_quantity": 0,
@@ -164,8 +165,9 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         loyalty_pts = abs(_safe_float(row.get(col.get("loyalty_pts", ""), 0)))
         loyalty_comp= abs(_safe_float(row.get(col.get("loyalty_comp", ""), 0)))
         promo       = abs(_safe_float(row.get(col.get("promo", ""), 0)))
-        qty         = int(_safe_float(row.get(col.get("quantity", ""), 0)))
-        qty_return  = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
+        qty          = int(_safe_float(row.get(col.get("quantity", ""), 0)))
+        qty_delivery = int(_safe_float(row.get(col.get("qty_delivery", ""), 0)))
+        qty_return   = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
 
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
@@ -173,17 +175,20 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             # Financial return: deducted from seller payout
             rec["returns"]    += abs(revenue)
             rec["_k_returns"] += abs(net)
-            # return_quantity counts physical items via PVZ rows below, not here
+            # return_quantity counts physical items via logistics rows below, not here
         elif doc_type == "Продажа":
             # Only actual sales contribute to quantity and revenue
             rec["revenue"]   += revenue
             rec["quantity"]  += qty
             rec["_k_sales"]  += net
 
-        # Physical return count: use dedicated «Количество возврата» column (AJ);
-        # fall back to pvz>0 + qty for older reports that don't have that column.
-        if qty_return > 0:
-            rec["return_quantity"] += qty_return
+        # Physical return count: only rows where Количество возврата > 0 AND
+        # Количество доставок == 0 (return logistics row, not a forward delivery).
+        # Forward delivery rows have qty_delivery=1, qty_return=0.
+        # Fall back to pvz>0 for older reports that lack these columns.
+        if "qty_return" in col and "qty_delivery" in col:
+            if qty_return > 0 and qty_delivery == 0:
+                rec["return_quantity"] += qty_return
         elif pvz > 0 and qty > 0:
             rec["return_quantity"] += abs(qty)
 
@@ -205,11 +210,10 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         # Cofinancing / loyalty / promo (informational)
         rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
 
-    # Finalize records — drop service rows with no valid product SKU.
-    # WB uses sku=0 for logistics/storage/acceptance rows not tied to a product;
-    # "unknown" means the Код номенклатуры column was blank.
-    # These rows have no revenue/returns/quantity and only pollute category totals.
+    # Drop service rows with no valid product SKU — WB uses sku=0 for
+    # logistics/storage rows not tied to a product; they pollute category totals.
     records = [v for v in aggregated.values() if v["sku"] not in ("0", "unknown")]
+
     for r in records:
         k_sales   = r.pop("_k_sales", 0)
         k_returns = r.pop("_k_returns", 0)
