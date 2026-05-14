@@ -507,8 +507,14 @@ if not mp_comp.empty:
         fig_mg.update_yaxes(ticksuffix="%", tickformat=".1f")
         st.plotly_chart(fig_mg, width="stretch")
 
+    _mp_display_cols = [
+        "marketplace", "revenue", "returns", "commission", "vat_commission", "acquiring",
+        "logistics", "storage", "penalties", "uderzhaniya", "ad_spend",
+        "net_profit", "net_revenue", "margin_pct", "quantity",
+    ]
     st.dataframe(
-        mp_comp.assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
+        mp_comp[[c for c in _mp_display_cols if c in mp_comp.columns]]
+        .assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
         .rename(columns={
             "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
             "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",

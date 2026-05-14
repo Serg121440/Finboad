@@ -212,7 +212,7 @@ def marketplace_comparison(df: pd.DataFrame) -> pd.DataFrame:
         agg["net_profit"] / agg["net_revenue"] * 100,
         0,
     ).round(2)
-    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["penalties"] + agg["uderzhaniya"]
+    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["storage"] + agg["penalties"] + agg["uderzhaniya"]
     return agg
 
 
