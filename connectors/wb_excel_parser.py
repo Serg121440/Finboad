@@ -212,24 +212,23 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         acc       = r.pop("_acceptance", 0)
 
         # net_profit = actual payout (matches WB «Итого к оплате»)
-        # К перечислению per-sale already includes: revenue − commission − vat − acquiring − sofin
-        # We additionally deduct: logistics_delivery + storage + acceptance + uderzhaniya + penalties
+        # log_trans (Возмещение издержек) and pvz are already embedded in
+        # per-sale К перечислению — do NOT deduct again here.
         r["net_profit"] = (
             k_sales
             - k_returns
             - log_del
-            - log_trans
             - stor
             - acc
             - r["penalties"]
             - r["uderzhaniya"]
         )
 
-        # Логистика = прямая (AI) + ПВЗ обратная (AJ) — matches WB «Логистика» in summary
-        r["logistics"]        = log_del + pvz
-        r["logistics_direct"] = log_del           # прямая (AI) — for breakdown display
-        # Хранение + Приёмка + Возмещение издержек (separate line in cost structure)
-        r["storage"] = stor + acc + log_trans
+        # Логистика = только «Услуги по доставке покупателю» (matches WB summary «Логистика»)
+        r["logistics"]        = log_del
+        r["logistics_direct"] = log_del
+        # Хранение + Приёмка + ПВЗ + Возмещение издержек (informational, not in net_profit)
+        r["storage"] = stor + acc + log_trans + pvz
 
     stats = {
         "total_rows":    len(df),

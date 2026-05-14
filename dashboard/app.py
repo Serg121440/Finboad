@@ -316,21 +316,17 @@ st.divider()
 # ── COST BREAKDOWN ROW ────────────────────────────────────────────────────────
 
 st.subheader("Структура затрат")
-_log_direct = costs.get("logistics_direct", 0)
-_log_pvz    = costs["logistics"] - _log_direct
-c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(9)
-c1.metric("Комиссия WB",        rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),         delta_color="off")
-c2.metric("НДС на комиссию",    rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)),     delta_color="off")
-c3.metric("Эквайринг",          rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),          delta_color="off")
-c4.metric("Прямая (AI)",        rub(_log_direct),             pct(costs.get("logistics_direct_pct", 0)),   delta_color="off",
-          help="Услуги по доставке товара покупателю")
-c5.metric("Обратная ПВЗ (AJ)", rub(_log_pvz),                pct(costs.get("logistics_pct", 0) - costs.get("logistics_direct_pct", 0)), delta_color="off",
-          help="Возмещение за выдачу и возврат товаров на ПВЗ")
-c6.metric("Хранение + Приёмка", rub(costs["storage"]),       pct(costs.get("storage_pct", 0)),            delta_color="off",
-          help="Хранение + Операции на приёмке + Возмещение издержек")
-c7.metric("Возвраты",           rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),            delta_color="off")
-c8.metric("Штрафы",             rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),          delta_color="off")
-c9.metric("Удержания WB",       rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),        delta_color="off")
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+c1.metric("Комиссия WB",       rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
+c2.metric("НДС на комиссию",   rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)), delta_color="off")
+c3.metric("Эквайринг",         rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
+c4.metric("Логистика",         rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off",
+          help="Услуги по доставке товара покупателю (совпадает с WB «Логистика»)")
+c5.metric("Хранение + ПВЗ",    rub(costs["storage"]),        pct(costs.get("storage_pct", 0)),        delta_color="off",
+          help="Хранение + Приёмка + ПВЗ + Возмещение издержек")
+c6.metric("Возвраты",          rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
+c7.metric("Штрафы",            rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),      delta_color="off")
+c8.metric("Удержания WB",      rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),    delta_color="off")
 
 st.divider()
 
@@ -339,15 +335,14 @@ st.divider()
 col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
-    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Прямая (AI)",
-                  "Обратная ПВЗ (AJ)", "Хранение+Приёмка", "Возвраты",
-                  "Штрафы", "Удержания WB", "Реклама", "К перечислению"]
+    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика",
+                  "Хранение+ПВЗ", "Возвраты", "Штрафы",
+                  "Удержания WB", "Реклама", "К перечислению"]
     pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
         max(costs["acquiring"], 0),
-        max(costs.get("logistics_direct", 0), 0),
-        max(costs["logistics"] - costs.get("logistics_direct", 0), 0),
+        max(costs["logistics"], 0),
         max(costs["storage"], 0),
         max(costs["returns"], 0),
         max(costs["penalties"] + costs["cofinancing"], 0),
