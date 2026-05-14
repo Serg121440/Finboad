@@ -25,9 +25,10 @@ class SaleRecord(Base):
     commission = Column(Float, default=0.0)       # ВВ без НДС
     vat_commission = Column(Float, default=0.0)   # НДС на комиссию
     acquiring = Column(Float, default=0.0)         # Эквайринг
-    # Logistics (total)
-    logistics = Column(Float, default=0.0)
-    storage = Column(Float, default=0.0)            # Хранение + Приёмка + Возмещение издержек
+    # Logistics breakdown
+    logistics = Column(Float, default=0.0)           # Общая = прямая + ПВЗ обратная
+    logistics_direct = Column(Float, default=0.0)    # Прямая доставка (AI)
+    storage = Column(Float, default=0.0)             # Хранение + Приёмка + Возмещение издержек
     # Other deductions
     penalties = Column(Float, default=0.0)
     uderzhaniya = Column(Float, default=0.0)        # WB прочие удержания/выплаты
@@ -94,8 +95,9 @@ def _migrate():
         ("vat_commission", "DOUBLE PRECISION DEFAULT 0.0"),
         ("acquiring",      "DOUBLE PRECISION DEFAULT 0.0"),
         ("penalties",      "DOUBLE PRECISION DEFAULT 0.0"),
-        ("uderzhaniya",    "DOUBLE PRECISION DEFAULT 0.0"),
-        ("storage",        "DOUBLE PRECISION DEFAULT 0.0"),
+        ("uderzhaniya",        "DOUBLE PRECISION DEFAULT 0.0"),
+        ("logistics_direct",   "DOUBLE PRECISION DEFAULT 0.0"),
+        ("storage",            "DOUBLE PRECISION DEFAULT 0.0"),
         ("cofinancing",    "DOUBLE PRECISION DEFAULT 0.0"),
         ("ad_spend",       "DOUBLE PRECISION DEFAULT 0.0"),
     ]

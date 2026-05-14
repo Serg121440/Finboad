@@ -120,10 +120,11 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "commission":     0.0,
                 "vat_commission": 0.0,
                 "acquiring":      0.0,
-                # Logistics = прямая доставка (AI) + ПВЗ обратная (AJ)
-                "logistics":      0.0,
+                # Logistics breakdown
+                "logistics":         0.0,   # Общая = прямая (AI) + ПВЗ обратная (AJ)
+                "logistics_direct":  0.0,   # Прямая доставка (AI)
                 # Хранение + Приёмка + Возмещение издержек (отдельная статья)
-                "storage":        0.0,
+                "storage":           0.0,
                 # Other deductions
                 "penalties":      0.0,   # штрафы WB
                 "uderzhaniya":    0.0,   # прочие удержания/выплаты WB
@@ -167,15 +168,19 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
         if is_return:
-            # Return: revenue is deducted from seller, net is also deducted
-            rec["returns"]         += abs(revenue)
-            rec["return_quantity"] += abs(qty)
-            rec["_k_returns"]      += abs(net)   # will be subtracted from net_profit
+            # Financial return: deducted from seller payout
+            rec["returns"]    += abs(revenue)
+            rec["_k_returns"] += abs(net)
+            # return_quantity counts physical items via PVZ rows below, not here
         elif doc_type == "Продажа":
             # Only actual sales contribute to quantity and revenue
             rec["revenue"]   += revenue
             rec["quantity"]  += qty
             rec["_k_sales"]  += net
+
+        # Physical return count: PVZ fee rows (AJ column) track items returned via PVZ
+        if pvz > 0:
+            rec["return_quantity"] += abs(qty)
 
         # Commission components (informational — already embedded in К перечислению)
         rec["commission"]    += abs(commission) + abs(comm_adj)
@@ -220,7 +225,8 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         )
 
         # Логистика = прямая (AI) + ПВЗ обратная (AJ) — matches WB «Логистика» in summary
-        r["logistics"] = log_del + pvz
+        r["logistics"]        = log_del + pvz
+        r["logistics_direct"] = log_del           # прямая (AI) — for breakdown display
         # Хранение + Приёмка + Возмещение издержек (separate line in cost structure)
         r["storage"] = stor + acc + log_trans
 
@@ -233,8 +239,9 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         "commission":    sum(r["commission"] for r in records),
         "vat_commission":sum(r["vat_commission"] for r in records),
         "acquiring":     sum(r["acquiring"] for r in records),
-        "logistics":     sum(r["logistics"] for r in records),
-        "storage":       sum(r["storage"] for r in records),
+        "logistics":          sum(r["logistics"] for r in records),
+        "logistics_direct":   sum(r["logistics_direct"] for r in records),
+        "storage":            sum(r["storage"] for r in records),
         "penalties":     sum(r["penalties"] for r in records),
         "uderzhaniya":   sum(r["uderzhaniya"] for r in records),
         "cofinancing":   sum(r["cofinancing"] for r in records),

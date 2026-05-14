@@ -40,7 +40,8 @@ def load_data(
 
     df["date"] = pd.to_datetime(df["date"])
     for col in ["revenue", "returns", "commission", "vat_commission", "acquiring",
-                "logistics", "storage", "penalties", "uderzhaniya", "cofinancing", "ad_spend", "net_profit"]:
+                "logistics", "logistics_direct", "storage",
+                "penalties", "uderzhaniya", "cofinancing", "ad_spend", "net_profit"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         else:
@@ -126,6 +127,7 @@ def margin_by_sku(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
         vat_commission=("vat_commission", "sum"),
         acquiring=("acquiring", "sum"),
         logistics=("logistics", "sum"),
+        logistics_direct=("logistics_direct", "sum"),
         storage=("storage", "sum"),
         penalties=("penalties", "sum"),
         uderzhaniya=("uderzhaniya", "sum"),
@@ -220,8 +222,9 @@ def cost_structure(df: pd.DataFrame) -> dict:
         "commission":    df["commission"].sum(),
         "vat_commission": df["vat_commission"].sum(),
         "acquiring":     df["acquiring"].sum(),
-        "logistics":     df["logistics"].sum(),
-        "storage":       df["storage"].sum(),
+        "logistics":          df["logistics"].sum(),
+        "logistics_direct":   df["logistics_direct"].sum(),
+        "storage":            df["storage"].sum(),
         "penalties":     df["penalties"].sum(),
         "uderzhaniya":   df["uderzhaniya"].sum(),
         "cofinancing":   df["cofinancing"].sum(),
@@ -230,7 +233,8 @@ def cost_structure(df: pd.DataFrame) -> dict:
         "net_profit":    df["net_profit"].sum(),
     }
     if total_revenue > 0:
-        for k in ["commission", "vat_commission", "acquiring", "logistics", "storage",
+        for k in ["commission", "vat_commission", "acquiring",
+                  "logistics", "logistics_direct", "storage",
                   "penalties", "uderzhaniya", "cofinancing", "ad_spend", "returns", "net_profit"]:
             d[f"{k}_pct"] = d[k] / total_revenue * 100
     return d
