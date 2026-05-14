@@ -179,9 +179,11 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
 
 # 5. Очистка данных
 with st.sidebar.expander("🗑 Управление данными", expanded=False):
-    src_options = ["Все данные", "Только демо-данные (source=demo)", "Только Excel (source=excel)",
-                   "Только API (source=api)", "Только Google Sheets (source=gsheets)",
-                   "Только рекламные расходы (ad_spend)"]
+    src_options = [
+        "Отчёт WB (продажи)",        # только sales, реклама и себест. не затронуты
+        "Рекламные расходы",          # только ad_spend
+        "Все продажи и реклама",      # sales + ad_spend
+    ]
     clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
 
     if st.button("🗑 Очистить", key="btn_clear", type="secondary"):
@@ -195,22 +197,15 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                 try:
                     from sqlalchemy import text as sqlt
                     with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-                        if clear_target == "Все данные":
+                        if "продажи" in clear_target:
+                            # Удаляем только продажи; реклама и себестоимость остаются
                             conn.execute(sqlt("DELETE FROM sales"))
-                            conn.execute(sqlt("DELETE FROM ad_spend"))
-                            conn.execute(sqlt("DELETE FROM sync_log"))
-                        elif "demo" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'demo'"))
-                        elif "excel" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source IN ('excel', 'excel_distributed')"))
-                            conn.execute(sqlt("DELETE FROM ad_spend WHERE source IN ('excel', 'excel_distributed')"))
-                        elif "api" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'api'"))
-                        elif "gsheets" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'gsheets'"))
-                        elif "ad_spend" in clear_target:
+                        elif "Рекламные" in clear_target:
                             conn.execute(sqlt("DELETE FROM ad_spend"))
                             conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
+                        elif "Все" in clear_target:
+                            conn.execute(sqlt("DELETE FROM sales"))
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
@@ -289,7 +284,7 @@ r_margin = r_profit / net * 100 if net > 0 else 0
 total_qty = int(df["quantity"].sum())
 total_returns = int(df["return_quantity"].sum())
 
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("Выручка (брутто)", rub(gross))
 col2.metric("Выручка (нетто)", rub(net))
 col3.metric("К перечислению WB", rub(profit), delta=pct(margin))
@@ -306,10 +301,16 @@ col5.metric(
     delta=pct(drr(df)) if ads > 0 else None,
     delta_color="inverse",
 )
+col6.metric(
+    "Себестоимость",
+    rub(cogs) if has_cogs else "не задана",
+    delta="загрузи COGS" if not has_cogs else None,
+    delta_color="off",
+)
 if has_cogs:
-    col6.metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
+    col7.metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
 else:
-    col6.metric("Себестоимость", "не задана", delta="загрузи COGS", delta_color="off")
+    col7.metric("Реальная прибыль", "—", delta_color="off")
 
 st.divider()
 
