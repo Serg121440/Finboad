@@ -397,7 +397,16 @@ st.subheader("Анализ по категориям")
 if not cats:
     st.info("Категории не определены — они берутся из поля «Предмет» в отчёте WB.")
 else:
-    cat_df = df.groupby("category").agg(
+    # Pre-compute per-row COGS so we can sum it by category
+    df_cat = df.copy()
+    if has_cogs:
+        df_cat["_cogs_row"] = df_cat.apply(
+            lambda r: cogs_map.get(str(r["sku"]), 0.0) * int(r.get("quantity", 0)), axis=1
+        )
+    else:
+        df_cat["_cogs_row"] = 0.0
+
+    cat_df = df_cat.groupby("category").agg(
         revenue=("revenue", "sum"),
         returns=("returns", "sum"),
         commission=("commission", "sum"),
@@ -406,8 +415,10 @@ else:
         quantity=("quantity", "sum"),
         return_quantity=("return_quantity", "sum"),
         skus=("sku", "nunique"),
+        cogs_total=("_cogs_row", "sum"),
     ).reset_index()
     cat_df["net_revenue"] = cat_df["revenue"] - cat_df["returns"]
+    cat_df["real_profit"] = cat_df["net_profit"] - cat_df["cogs_total"]
     cat_df["margin_pct"] = (
         cat_df["net_profit"] / cat_df["net_revenue"] * 100
     ).where(cat_df["net_revenue"] > 0, 0).round(1)
@@ -443,32 +454,43 @@ else:
         fig_cat_mg.update_traces(textposition="outside")
         st.plotly_chart(fig_cat_mg, width="stretch")
 
+    cat_show = cat_df.copy()
+    rename_map = {
+        "category": "Категория",
+        "revenue": "Выручка, ₽",
+        "returns": "Возвраты, ₽",
+        "commission": "Комиссия, ₽",
+        "logistics": "Логистика, ₽",
+        "net_profit": "К перечислению, ₽",
+        "quantity": "Продано, шт.",
+        "return_quantity": "Возвращено, шт.",
+        "skus": "SKU",
+        "net_revenue": "Нетто-выручка, ₽",
+        "margin_pct": "Маржа, %",
+        "return_rate_pct": "Возвраты, %",
+    }
+    fmt_map = {
+        "Выручка, ₽": lambda v: num(v),
+        "Возвраты, ₽": lambda v: num(v),
+        "Комиссия, ₽": lambda v: num(v),
+        "Логистика, ₽": lambda v: num(v),
+        "К перечислению, ₽": lambda v: num(v),
+        "Нетто-выручка, ₽": lambda v: num(v),
+        "Продано, шт.": lambda v: num(v),
+        "Возвращено, шт.": lambda v: num(v),
+        "Маржа, %": lambda v: f"{v:.1f}%",
+        "Возвраты, %": lambda v: f"{v:.1f}%",
+    }
+    if has_cogs:
+        rename_map["cogs_total"] = "Себестоимость, ₽"
+        rename_map["real_profit"] = "Реальная прибыль, ₽"
+        fmt_map["Себестоимость, ₽"] = lambda v: num(v)
+        fmt_map["Реальная прибыль, ₽"] = lambda v: num(v)
+    else:
+        cat_show = cat_show.drop(columns=["cogs_total", "real_profit"])
+
     st.dataframe(
-        cat_df.rename(columns={
-            "category": "Категория",
-            "revenue": "Выручка, ₽",
-            "returns": "Возвраты, ₽",
-            "commission": "Комиссия, ₽",
-            "logistics": "Логистика, ₽",
-            "net_profit": "К перечислению, ₽",
-            "quantity": "Продано, шт.",
-            "return_quantity": "Возвращено, шт.",
-            "skus": "SKU",
-            "net_revenue": "Нетто-выручка, ₽",
-            "margin_pct": "Маржа, %",
-            "return_rate_pct": "Возвраты, %",
-        }).style.format({
-            "Выручка, ₽": lambda v: num(v),
-            "Возвраты, ₽": lambda v: num(v),
-            "Комиссия, ₽": lambda v: num(v),
-            "Логистика, ₽": lambda v: num(v),
-            "К перечислению, ₽": lambda v: num(v),
-            "Нетто-выручка, ₽": lambda v: num(v),
-            "Продано, шт.": lambda v: num(v),
-            "Возвращено, шт.": lambda v: num(v),
-            "Маржа, %": lambda v: f"{v:.1f}%",
-            "Возвраты, %": lambda v: f"{v:.1f}%",
-        }),
+        cat_show.rename(columns=rename_map).style.format(fmt_map),
         width="stretch", hide_index=True,
     )
 
