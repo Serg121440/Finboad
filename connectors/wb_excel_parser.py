@@ -218,6 +218,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             k_sales
             - k_returns
             - log_del
+            - log_trans
             - stor
             - acc
             - r["penalties"]
