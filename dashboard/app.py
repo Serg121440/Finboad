@@ -75,10 +75,11 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     f"**{f.name}**  \n"
                     f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
                     f"Период: {stats['date_from']} — {stats['date_to']}  \n"
-                    f"Продано: **{num(stats['quantity'])} шт.** | Возвраты: {num(stats['return_quantity'])} шт.  \n"
                     f"Выручка: **{rub(stats['revenue'])}** | К перечислению: **{rub(stats['net_profit'])}**  \n"
-                    f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])} | "
-                    f"Логистика: {rub(stats['logistics'])}"
+                    f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])}  \n"
+                    f"Логистика (дост.): {rub(stats['logistics'])} | "
+                    f"Хранение+Приёмка: {rub(stats.get('storage', 0))} | "
+                    f"Удержания: {rub(stats.get('uderzhaniya', 0))}"
                 )
             except Exception as e:
                 st.error(f"{f.name}: {e}")
@@ -297,7 +298,7 @@ col4.metric(
     f"{num(total_qty)} шт.",
     delta=f"возвраты: {num(total_returns)} шт.",
     delta_color="inverse" if total_returns > 0 else "off",
-    help="Количество товаров с Типом документа = Продажа",
+    help="Общее количество проданных единиц товара за период",
 )
 col5.metric(
     "Реклама (ДРР)",
@@ -315,16 +316,21 @@ st.divider()
 # ── COST BREAKDOWN ROW ────────────────────────────────────────────────────────
 
 st.subheader("Структура затрат")
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Комиссия WB",     rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
-c2.metric("НДС на комиссию", rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)), delta_color="off")
-c3.metric("Эквайринг",       rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
-c4.metric("Логистика",       rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off")
-c5.metric("Возвраты",        rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
-c6.metric("Штрафы + удержания",
-          rub(costs["penalties"] + costs["cofinancing"]),
-          pct(costs.get("penalties_pct", 0) + costs.get("cofinancing_pct", 0)),
-          delta_color="off")
+_log_direct = costs.get("logistics_direct", 0)
+_log_pvz    = costs["logistics"] - _log_direct
+c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(9)
+c1.metric("Комиссия WB",        rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),         delta_color="off")
+c2.metric("НДС на комиссию",    rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)),     delta_color="off")
+c3.metric("Эквайринг",          rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),          delta_color="off")
+c4.metric("Прямая (AI)",        rub(_log_direct),             pct(costs.get("logistics_direct_pct", 0)),   delta_color="off",
+          help="Услуги по доставке товара покупателю")
+c5.metric("Обратная ПВЗ (AJ)", rub(_log_pvz),                pct(costs.get("logistics_pct", 0) - costs.get("logistics_direct_pct", 0)), delta_color="off",
+          help="Возмещение за выдачу и возврат товаров на ПВЗ")
+c6.metric("Хранение + Приёмка", rub(costs["storage"]),       pct(costs.get("storage_pct", 0)),            delta_color="off",
+          help="Хранение + Операции на приёмке + Возмещение издержек")
+c7.metric("Возвраты",           rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),            delta_color="off")
+c8.metric("Штрафы",             rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),          delta_color="off")
+c9.metric("Удержания WB",       rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),        delta_color="off")
 
 st.divider()
 
@@ -333,15 +339,19 @@ st.divider()
 col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
-    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика",
-                  "Возвраты", "Штрафы/Удержания", "Реклама", "К перечислению"]
+    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Прямая (AI)",
+                  "Обратная ПВЗ (AJ)", "Хранение+Приёмка", "Возвраты",
+                  "Штрафы", "Удержания WB", "Реклама", "К перечислению"]
     pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
         max(costs["acquiring"], 0),
-        max(costs["logistics"], 0),
+        max(costs.get("logistics_direct", 0), 0),
+        max(costs["logistics"] - costs.get("logistics_direct", 0), 0),
+        max(costs["storage"], 0),
         max(costs["returns"], 0),
         max(costs["penalties"] + costs["cofinancing"], 0),
+        max(costs["uderzhaniya"], 0),
         max(costs["ad_spend"], 0),
         max(costs["net_profit"], 0),
     ]
@@ -502,7 +512,9 @@ if not mp_comp.empty:
         .rename(columns={
             "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
             "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
-            "logistics": "Логистика, ₽", "penalties": "Штрафы+Удержания, ₽", "ad_spend": "Реклама, ₽",
+            "logistics": "Логистика (дост.), ₽", "storage": "Хранение+Приёмка, ₽",
+            "penalties": "Штрафы, ₽", "uderzhaniya": "Удержания, ₽",
+            "ad_spend": "Реклама, ₽",
             "net_profit": "К перечислению, ₽", "net_revenue": "Нетто-выручка, ₽",
             "margin_pct": "Маржа, %", "quantity": "Продано, шт.",
         }).style.format({
@@ -511,8 +523,10 @@ if not mp_comp.empty:
             "Комиссия WB, ₽": lambda v: num(v),
             "НДС, ₽": lambda v: num(v),
             "Эквайринг, ₽": lambda v: num(v),
-            "Логистика, ₽": lambda v: num(v),
-            "Штрафы+Удержания, ₽": lambda v: num(v),
+            "Логистика (дост.), ₽": lambda v: num(v),
+            "Хранение+Приёмка, ₽": lambda v: num(v),
+            "Штрафы, ₽": lambda v: num(v),
+            "Удержания, ₽": lambda v: num(v),
             "Реклама, ₽": lambda v: num(v),
             "К перечислению, ₽": lambda v: num(v),
             "Нетто-выручка, ₽": lambda v: num(v),
