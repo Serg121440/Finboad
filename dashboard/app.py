@@ -197,15 +197,15 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                 try:
                     from sqlalchemy import text as sqlt
                     with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-                        if "продажи" in clear_target:
-                            # Удаляем только продажи; реклама и себестоимость остаются
+                        if clear_target == "Все продажи и реклама":
                             conn.execute(sqlt("DELETE FROM sales"))
-                        elif "Рекламные" in clear_target:
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
+                        elif clear_target == "Рекламные расходы":
                             conn.execute(sqlt("DELETE FROM ad_spend"))
                             conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
-                        elif "Все" in clear_target:
+                        elif clear_target == "Отчёт WB (продажи)":
+                            # Удаляем только продажи; реклама и себестоимость остаются
                             conn.execute(sqlt("DELETE FROM sales"))
-                            conn.execute(sqlt("DELETE FROM ad_spend"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
