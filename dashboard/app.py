@@ -465,7 +465,7 @@ else:
         "net_profit": "К перечислению, ₽",
         "quantity": "Продано, шт.",
         "return_quantity": "Возвращено, шт.",
-        "skus": "SKU",
+        "skus": "Товаров, шт.",
         "net_revenue": "Нетто-выручка, ₽",
         "margin_pct": "Маржа, %",
         "return_rate_pct": "Возвраты, %",
