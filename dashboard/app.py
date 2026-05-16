@@ -129,12 +129,18 @@ with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=Fals
     from database.db import upsert_cogs
 
     try:
+        from sqlalchemy import text as _sqlt
         with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
             existing = pd.read_sql_query(
-                __import__("sqlalchemy", fromlist=["text"]).text(
-                    "SELECT sku, product_name, cost_per_unit FROM cost_of_goods"
-                ), conn,
+                _sqlt("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn,
             ).to_dict("records")
+            if not existing:
+                # Pre-populate template from sales so user sees real SKUs
+                sales_skus = pd.read_sql_query(
+                    _sqlt("SELECT DISTINCT sku, product_name FROM sales ORDER BY sku"),
+                    conn,
+                ).to_dict("records")
+                existing = [{"sku": r["sku"], "product_name": r["product_name"], "cost_per_unit": 0} for r in sales_skus]
     except Exception:
         existing = []
 
@@ -197,15 +203,15 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                 try:
                     from sqlalchemy import text as sqlt
                     with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-                        if "продажи" in clear_target:
-                            # Удаляем только продажи; реклама и себестоимость остаются
+                        if clear_target == "Все продажи и реклама":
                             conn.execute(sqlt("DELETE FROM sales"))
-                        elif "Рекламные" in clear_target:
+                            conn.execute(sqlt("DELETE FROM ad_spend"))
+                        elif clear_target == "Рекламные расходы":
                             conn.execute(sqlt("DELETE FROM ad_spend"))
                             conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
-                        elif "Все" in clear_target:
+                        elif clear_target == "Отчёт WB (продажи)":
+                            # Удаляем только продажи; реклама и себестоимость остаются
                             conn.execute(sqlt("DELETE FROM sales"))
-                            conn.execute(sqlt("DELETE FROM ad_spend"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
@@ -465,7 +471,7 @@ else:
         "net_profit": "К перечислению, ₽",
         "quantity": "Продано, шт.",
         "return_quantity": "Возвращено, шт.",
-        "skus": "SKU",
+        "skus": "Товаров, шт.",
         "net_revenue": "Нетто-выручка, ₽",
         "margin_pct": "Маржа, %",
         "return_rate_pct": "Возвраты, %",
