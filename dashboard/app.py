@@ -129,12 +129,18 @@ with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=Fals
     from database.db import upsert_cogs
 
     try:
+        from sqlalchemy import text as _sqlt
         with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
             existing = pd.read_sql_query(
-                __import__("sqlalchemy", fromlist=["text"]).text(
-                    "SELECT sku, product_name, cost_per_unit FROM cost_of_goods"
-                ), conn,
+                _sqlt("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn,
             ).to_dict("records")
+            if not existing:
+                # Pre-populate template from sales so user sees real SKUs
+                sales_skus = pd.read_sql_query(
+                    _sqlt("SELECT DISTINCT sku, product_name FROM sales ORDER BY sku"),
+                    conn,
+                ).to_dict("records")
+                existing = [{"sku": r["sku"], "product_name": r["product_name"], "cost_per_unit": 0} for r in sales_skus]
     except Exception:
         existing = []
 
