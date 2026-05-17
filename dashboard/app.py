@@ -20,6 +20,10 @@ from analytics.metrics import (
     get_all_categories, get_date_range,
 )
 from config import WB_API_TOKEN, OZON_CLIENT_ID, OZON_API_KEY
+from dashboard.theme import (
+    inject_css, brand_block, theme_toggle_sidebar, apply_plotly_theme,
+    MP_LABELS, MP_COLORS, PLOTLY_PALETTE, WB_ACCENT, OZON_ACCENT, SUCCESS, DANGER, INFO,
+)
 
 st.set_page_config(
     page_title="Finboard — Маркетплейс Аналитика",
@@ -28,9 +32,7 @@ st.set_page_config(
 )
 
 init_db()
-
-MP_LABELS = {"wb": "Wildberries", "ozon": "Ozon", "other": "Прочие"}
-MP_COLORS = {"wb": "#CB11AB", "ozon": "#005BFF", "other": "#999999"}
+inject_css()
 
 
 def rub(v: float) -> str:
@@ -52,7 +54,9 @@ def num(v: float) -> str:
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 
-st.sidebar.title("Finboard")
+with st.sidebar:
+    brand_block()
+theme_toggle_sidebar()
 
 # 1. WB Отчёт о реализации
 with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=True):
@@ -470,7 +474,7 @@ with col_pie:
         )
         fig_pie.update_traces(textinfo="percent+label", textfont_size=11)
         fig_pie.update_layout(showlegend=False, height=380)
-        st.plotly_chart(fig_pie, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_pie), width="stretch")
 
 with col_dyn:
     st.markdown("**Динамика выручки и прибыли по дням**")
@@ -498,7 +502,7 @@ with col_dyn:
             hovermode="x unified", height=380,
             margin=dict(t=10),
         )
-        st.plotly_chart(fig_daily, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_daily), width="stretch")
 
 st.divider()
 
@@ -557,7 +561,7 @@ else:
         )
         fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=400)
         fig_cat_rev.update_traces(textposition="outside")
-        st.plotly_chart(fig_cat_rev, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_cat_rev), width="stretch")
 
     with col_cat2:
         fig_cat_mg = px.bar(
@@ -570,7 +574,7 @@ else:
         )
         fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=400)
         fig_cat_mg.update_traces(textposition="outside")
-        st.plotly_chart(fig_cat_mg, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_cat_mg), width="stretch")
 
     cat_show = cat_df.copy()
     rename_map = {
@@ -631,7 +635,7 @@ if not mp_comp.empty:
         )
         fig_mp.update_xaxes(tickvals=_mp_bar["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in _mp_bar["marketplace"]])
         fig_mp.update_yaxes(tickformat=",.0f")
-        st.plotly_chart(fig_mp, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_mp), width="stretch")
     with col_b:
         fig_mg = px.bar(
             mp_comp, x="marketplace", y="margin_pct",
@@ -641,7 +645,7 @@ if not mp_comp.empty:
         )
         fig_mg.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
         fig_mg.update_yaxes(ticksuffix="%", tickformat=".1f")
-        st.plotly_chart(fig_mg, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_mg), width="stretch")
 
     _mp_display_cols = [
         "marketplace", "revenue", "returns", "commission", "vat_commission", "acquiring",
@@ -698,7 +702,7 @@ if not top.empty:
     )
     fig_top.update_layout(yaxis=dict(autorange="reversed"), height=600)
     fig_top.update_xaxes(tickformat=",.0f")
-    st.plotly_chart(fig_top, width="stretch")
+    st.plotly_chart(apply_plotly_theme(fig_top), width="stretch")
 
     show_cols = ["sku", "product_name", "category", "marketplace",
                  "revenue", "net_profit", "margin_pct", "real_margin_pct",
@@ -758,7 +762,7 @@ with col_abc1:
         fig_abc.update_traces(texttemplate="%{text} SKU", textposition="outside")
         fig_abc.update_layout(showlegend=False, height=320)
         fig_abc.update_yaxes(tickformat=",.0f")
-        st.plotly_chart(fig_abc, width="stretch")
+        st.plotly_chart(apply_plotly_theme(fig_abc), width="stretch")
 
 with col_abc2:
     if not abc.empty:
