@@ -217,9 +217,30 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         # Cofinancing / loyalty / promo (informational)
         rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
 
-    # Drop service rows with no valid product SKU — WB uses sku=0 for
-    # logistics/storage rows not tied to a product; they pollute category totals.
+    # Separate real product records from service rows (sku=0/unknown).
+    # Service rows carry global costs (uderzhaniya, хранение, приёмка) that are
+    # not tied to any SKU — collect and distribute proportionally to real records.
+    service_costs = {"_storage": 0.0, "_acceptance": 0.0, "uderzhaniya": 0.0, "penalties": 0.0}
+    for v in aggregated.values():
+        if v["sku"] in ("0", "unknown"):
+            service_costs["_storage"]    += v.get("_storage", 0)
+            service_costs["_acceptance"] += v.get("_acceptance", 0)
+            service_costs["uderzhaniya"] += v.get("uderzhaniya", 0)
+            service_costs["penalties"]   += v.get("penalties", 0)
+
     records = [v for v in aggregated.values() if v["sku"] not in ("0", "unknown")]
+
+    # Distribute service-level costs proportionally by К перечислению (k_sales)
+    total_k = sum(r.get("_k_sales", 0) for r in records)
+    for r in records:
+        if total_k > 0:
+            share = r.get("_k_sales", 0) / total_k
+        else:
+            share = 1.0 / len(records) if records else 0.0
+        r["_storage"]    += service_costs["_storage"] * share
+        r["_acceptance"] += service_costs["_acceptance"] * share
+        r["uderzhaniya"] += service_costs["uderzhaniya"] * share
+        r["penalties"]   += service_costs["penalties"] * share
 
     for r in records:
         k_sales   = r.pop("_k_sales", 0)
