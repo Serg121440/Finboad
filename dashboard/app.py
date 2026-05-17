@@ -398,7 +398,7 @@ total_returns = int(df["return_quantity"].sum())
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("Выручка (брутто)", rub(gross))
 col2.metric("Выручка (нетто)", rub(net))
-col3.metric("К перечислению WB", rub(profit), delta=pct(margin))
+col3.metric("К перечислению МП", rub(profit), delta=pct(margin))
 col4.metric(
     "Продано / Возвращено",
     f"{num(total_qty)} шт.",
@@ -429,7 +429,7 @@ st.divider()
 
 st.subheader("Структура затрат")
 c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-c1.metric("Комиссия WB",       rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
+c1.metric("Комиссия МП",       rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
 c2.metric("НДС на комиссию",   rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)), delta_color="off")
 c3.metric("Эквайринг",         rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
 c4.metric("Логистика",         rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off",
@@ -438,7 +438,7 @@ c5.metric("Хранение + ПВЗ",    rub(costs["storage"]),        pct(cost
           help="Хранение + Приёмка + ПВЗ + Возмещение издержек")
 c6.metric("Возвраты",          rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
 c7.metric("Штрафы",            rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),      delta_color="off")
-c8.metric("Удержания WB",      rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),    delta_color="off")
+c8.metric("Удержания МП",      rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),    delta_color="off")
 
 st.divider()
 
@@ -447,9 +447,9 @@ st.divider()
 col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
-    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Логистика",
+    pie_labels = ["Комиссия МП", "НДС", "Эквайринг", "Логистика",
                   "Хранение+ПВЗ", "Возвраты", "Штрафы",
-                  "Удержания WB", "Реклама", "К перечислению"]
+                  "Удержания МП", "Реклама", "К перечислению"]
     pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
@@ -506,11 +506,17 @@ st.divider()
 
 st.subheader("Анализ по категориям")
 
-if not cats:
-    st.info("Категории не определены — они берутся из поля «Предмет» в отчёте WB.")
+if df.empty:
+    st.info("Нет данных для анализа.")
 else:
     # Pre-compute per-row COGS so we can sum it by category
     df_cat = df.copy()
+    # Fill empty category with marketplace name so Ozon items aren't lumped into ""
+    df_cat["category"] = df_cat.apply(
+        lambda r: r["category"] if str(r.get("category") or "").strip()
+        else MP_LABELS.get(str(r.get("marketplace", "")), str(r.get("marketplace", "Прочее"))),
+        axis=1,
+    )
     if has_cogs:
         df_cat["_cogs_row"] = df_cat.apply(
             lambda r: cogs_map.get(str(r["sku"]), 0.0) * int(r.get("quantity", 0)), axis=1
@@ -615,14 +621,15 @@ mp_comp = marketplace_comparison(df)
 if not mp_comp.empty:
     col_a, col_b = st.columns(2)
     with col_a:
+        _mp_bar = mp_comp.rename(columns={"revenue": "Выручка", "net_profit": "К перечислению"})
         fig_mp = px.bar(
-            mp_comp, x="marketplace", y=["revenue", "net_profit"],
+            _mp_bar, x="marketplace", y=["Выручка", "К перечислению"],
             barmode="group",
             labels={"value": "₽", "marketplace": "Маркетплейс", "variable": ""},
-            color_discrete_map={"revenue": "#4CAF50", "net_profit": "#2196F3"},
+            color_discrete_map={"Выручка": "#4CAF50", "К перечислению": "#2196F3"},
             title="Выручка и к перечислению",
         )
-        fig_mp.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
+        fig_mp.update_xaxes(tickvals=_mp_bar["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in _mp_bar["marketplace"]])
         fig_mp.update_yaxes(tickformat=",.0f")
         st.plotly_chart(fig_mp, width="stretch")
     with col_b:
@@ -646,7 +653,7 @@ if not mp_comp.empty:
         .assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
         .rename(columns={
             "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
-            "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
+            "commission": "Комиссия МП, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
             "logistics": "Логистика (дост.), ₽", "storage": "Хранение+Приёмка, ₽",
             "penalties": "Штрафы, ₽", "uderzhaniya": "Удержания, ₽",
             "ad_spend": "Реклама, ₽",
@@ -701,7 +708,7 @@ if not top.empty:
     fmt_map = {
         "Выручка, ₽": lambda v: num(v),
         "К перечислению, ₽": lambda v: num(v),
-        "Маржа WB, %": lambda v: f"{v:.1f}%",
+        "Маржа МП, %": lambda v: f"{v:.1f}%",
         "Реальная маржа, %": lambda v: f"{v:.1f}%",
         "Возвраты, %": lambda v: f"{v:.1f}%",
         "Комиссия, %": lambda v: f"{v:.1f}%",
@@ -710,11 +717,18 @@ if not top.empty:
         "Продано, шт.": lambda v: num(v),
         "Возвращено, шт.": lambda v: num(v),
     }
+    top_display = top[show_cols].copy()
+    top_display["category"] = top_display.apply(
+        lambda r: r["category"] if str(r.get("category") or "").strip()
+        else MP_LABELS.get(str(r.get("marketplace", "")), ""),
+        axis=1,
+    )
+    top_display["marketplace"] = top_display["marketplace"].map(lambda m: MP_LABELS.get(m, m))
     st.dataframe(
-        top[show_cols].rename(columns={
+        top_display.rename(columns={
             "sku": "Артикул", "product_name": "Наименование", "category": "Категория",
             "marketplace": "МП", "revenue": "Выручка, ₽",
-            "net_profit": "К перечислению, ₽", "margin_pct": "Маржа WB, %",
+            "net_profit": "К перечислению, ₽", "margin_pct": "Маржа МП, %",
             "real_margin_pct": "Реальная маржа, %",
             "return_rate_pct": "Возвраты, %", "commission_pct": "Комиссия, %",
             "drr_pct": "ДРР, %", "logistics_per_unit": "Лог./ед, ₽",
