@@ -1,11 +1,27 @@
 from sqlalchemy import (
     create_engine, Column, String, Float, Date, DateTime, Integer, text, func
 )
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime, timezone, timedelta
 from config import DATABASE_URL
 
 Base = declarative_base()
+
+_INVALID_PG_PARAMS = {"schema", "pgbouncer", "connect_timeout_ms"}
+
+
+def _build_engine(raw_url: str):
+    """Create SQLAlchemy engine, stripping psycopg2-incompatible URL params."""
+    try:
+        url = make_url(raw_url)
+        if url.get_dialect().name in ("postgresql", "postgres") and url.query:
+            clean_query = {k: v for k, v in url.query.items()
+                           if k not in _INVALID_PG_PARAMS}
+            url = url.set(query=clean_query)
+        return create_engine(url, echo=False)
+    except Exception:
+        return create_engine(raw_url, echo=False)
 
 _MSK = timezone(timedelta(hours=3))
 
@@ -91,7 +107,7 @@ class SyncLog(Base):
     revenue = Column(Float, default=0.0)
 
 
-engine = create_engine(DATABASE_URL, echo=False)
+engine = _build_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 
