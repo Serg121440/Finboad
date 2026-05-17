@@ -17,8 +17,10 @@ _INVALID_PG_PARAMS = {"schema", "pgbouncer", "connect_timeout_ms"}
 
 
 def _clean_db_url(url: str) -> str:
-    """Strip query params unsupported by psycopg2 (e.g. schema=public from Prisma-style URLs)."""
+    """Strip psycopg2-incompatible query params from PostgreSQL DSNs only."""
     if not url or "?" not in url:
+        return url
+    if not (url.startswith("postgresql") or url.startswith("postgres")):
         return url
     from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
     parsed = urlparse(url)
