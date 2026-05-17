@@ -12,7 +12,7 @@ from dashboard.shared import (
     render_filters_and_load, render_sync_log_sidebar, rub, pct, num,
 )
 from dashboard.theme import (
-    apply_plotly_theme, MP_LABELS, MP_COLORS,
+    apply_plotly_theme, kpi_card, MP_LABELS, MP_COLORS,
     WB_ACCENT, OZON_ACCENT, SUCCESS, DANGER, INFO,
 )
 
@@ -58,32 +58,90 @@ def render():
     total_qty = int(df["quantity"].sum())
     total_returns = int(df["return_quantity"].sum())
 
+    # Daily trends for sparklines
+    _daily = df.groupby(df["date"].dt.date).agg(
+        revenue=("revenue", "sum"),
+        net_profit=("net_profit", "sum"),
+        ad_spend=("ad_spend", "sum"),
+        quantity=("quantity", "sum"),
+    ).sort_index()
+    trend_revenue = _daily["revenue"].tolist()
+    trend_profit  = _daily["net_profit"].tolist()
+    trend_ads     = _daily["ad_spend"].tolist()
+    trend_qty     = _daily["quantity"].tolist()
+
     cols = st.columns(7)
-    cols[0].metric("Выручка (брутто)", rub(gross))
-    cols[1].metric("Выручка (нетто)", rub(net))
-    cols[2].metric("К перечислению МП", rub(profit), delta=pct(margin))
-    cols[3].metric(
-        "Продано / Возвращено",
-        f"{num(total_qty)} шт.",
-        delta=f"возвраты: {num(total_returns)} шт.",
-        delta_color="inverse" if total_returns > 0 else "off",
-    )
-    cols[4].metric(
-        "Реклама (ДРР)",
-        rub(ads) if ads > 0 else "не загружена",
-        delta=pct(drr(df)) if ads > 0 else None,
-        delta_color="inverse",
-    )
-    cols[5].metric(
-        "Себестоимость",
-        rub(cogs) if has_cogs else "не задана",
-        delta="загрузи COGS" if not has_cogs else None,
-        delta_color="off",
-    )
-    if has_cogs:
-        cols[6].metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
-    else:
-        cols[6].metric("Реальная прибыль", "—", delta_color="off")
+    with cols[0]:
+        kpi_card("Выручка (брутто)", rub(gross), trend=trend_revenue, accent=WB_ACCENT)
+    with cols[1]:
+        kpi_card("Выручка (нетто)", rub(net), trend=trend_revenue, accent=INFO)
+    with cols[2]:
+        kpi_card("К перечислению МП", rub(profit), delta=pct(margin),
+                 delta_color="up" if margin >= 0 else "down",
+                 trend=trend_profit, accent=SUCCESS)
+    with cols[3]:
+        ret_color = "down" if total_returns > 0 else "muted"
+        kpi_card("Продано / Возвращено", f"{num(total_qty)} шт.",
+                 delta=f"возвраты: {num(total_returns)}",
+                 delta_color=ret_color, trend=trend_qty, accent=OZON_ACCENT)
+    with cols[4]:
+        kpi_card("Реклама (ДРР)",
+                 rub(ads) if ads > 0 else "не загружена",
+                 delta=pct(drr(df)) if ads > 0 else "—",
+                 delta_color="down" if ads > 0 else "muted",
+                 trend=trend_ads if ads > 0 else None, accent=DANGER)
+    with cols[5]:
+        kpi_card("Себестоимость",
+                 rub(cogs) if has_cogs else "не задана",
+                 delta="загрузи COGS" if not has_cogs else "",
+                 delta_color="muted")
+    with cols[6]:
+        if has_cogs:
+            kpi_card("Реальная прибыль", rub(r_profit), delta=pct(r_margin),
+                     delta_color="up" if r_margin >= 0 else "down",
+                     trend=trend_profit, accent=SUCCESS)
+        else:
+            kpi_card("Реальная прибыль", "—", delta_color="muted")
+
+    st.divider()
+
+    # ── Margin bullet chart (target = 30% by default) ────────────────────────
+    margin_target = st.session_state.get("margin_target_pct", 30.0)
+
+    bullet_col, target_col = st.columns([3, 1])
+    with target_col:
+        st.markdown("**Цель по марже**")
+        margin_target = st.number_input(
+            "Цель, %", min_value=0.0, max_value=100.0,
+            value=float(margin_target), step=1.0, key="margin_target_pct",
+            label_visibility="collapsed",
+        )
+    with bullet_col:
+        fig_bullet = go.Figure(go.Indicator(
+            mode="number+gauge+delta",
+            value=margin,
+            domain={"x": [0, 1], "y": [0, 1]},
+            delta={"reference": margin_target, "suffix": " п.п."},
+            number={"suffix": "%", "valueformat": ".1f"},
+            title={"text": "Маржа vs цель", "font": {"size": 14}},
+            gauge={
+                "shape": "bullet",
+                "axis": {"range": [0, max(margin_target * 1.5, 50)]},
+                "threshold": {
+                    "line": {"color": SUCCESS, "width": 3},
+                    "thickness": 0.85,
+                    "value": margin_target,
+                },
+                "steps": [
+                    {"range": [0, margin_target * 0.5], "color": "rgba(239,68,68,0.25)"},
+                    {"range": [margin_target * 0.5, margin_target], "color": "rgba(245,158,11,0.25)"},
+                    {"range": [margin_target, margin_target * 1.5], "color": "rgba(16,185,129,0.20)"},
+                ],
+                "bar": {"color": WB_ACCENT, "thickness": 0.5},
+            },
+        ))
+        fig_bullet.update_layout(height=120, margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(apply_plotly_theme(fig_bullet), width="stretch")
 
     st.divider()
 
