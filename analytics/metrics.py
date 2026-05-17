@@ -51,11 +51,39 @@ def load_data(
 
 
 def load_cogs() -> dict[str, float]:
-    """Return {sku: cost_per_unit} dict."""
+    """Return {wb_numeric_sku: cost_per_unit}.
+
+    COGS keys are vendor articles (e.g. "СГ000005550") stored in uppercase.
+    Cross-references them to WB numeric SKUs via sales.article (also uppercase).
+    """
     try:
         with engine.connect() as conn:
-            df = pd.read_sql_query(text("SELECT sku, cost_per_unit FROM cost_of_goods"), conn)
-        return dict(zip(df["sku"], df["cost_per_unit"]))
+            cogs = pd.read_sql_query(
+                text("SELECT sku, cost_per_unit FROM cost_of_goods"), conn
+            )
+            # Normalize stored keys to uppercase (handles legacy lowercase entries)
+            result: dict[str, float] = {
+                str(r["sku"]).strip().upper(): r["cost_per_unit"]
+                for _, r in cogs.iterrows()
+            }
+
+            # Cross-reference vendor article → WB numeric SKU via sales.article
+            try:
+                sales = pd.read_sql_query(
+                    text("SELECT DISTINCT sku, article FROM sales "
+                         "WHERE article IS NOT NULL AND article != ''"), conn
+                )
+                for _, row in sales.iterrows():
+                    wb_sku = str(row["sku"]).strip()
+                    if wb_sku in result:
+                        continue
+                    article_upper = str(row.get("article") or "").strip().upper()
+                    if article_upper and article_upper in result:
+                        result[wb_sku] = result[article_upper]
+            except Exception:
+                pass
+
+            return result
     except Exception:
         return {}
 
@@ -212,7 +240,7 @@ def marketplace_comparison(df: pd.DataFrame) -> pd.DataFrame:
         agg["net_profit"] / agg["net_revenue"] * 100,
         0,
     ).round(2)
-    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["penalties"] + agg["uderzhaniya"]
+    agg["total_costs"] = agg["commission"] + agg["vat_commission"] + agg["acquiring"] + agg["logistics"] + agg["storage"] + agg["penalties"] + agg["uderzhaniya"]
     return agg
 
 

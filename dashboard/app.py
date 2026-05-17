@@ -71,6 +71,13 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     records, stats = parse_wb_excel(f)
                     upsert_records(records)
                     total += len(records)
+                log_sync(
+                    "wb", "ok", len(records),
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("revenue", 0),
+                )
                 st.success(
                     f"**{f.name}**  \n"
                     f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
@@ -82,9 +89,9 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     f"Удержания: {rub(stats.get('uderzhaniya', 0))}"
                 )
             except Exception as e:
+                log_sync("wb", "error", error=str(e), filename=f.name)
                 st.error(f"{f.name}: {e}")
         if total:
-            log_sync("wb", "ok", total)
             st.rerun()
 
 # 2. WB Реклама
@@ -101,7 +108,7 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
     )
     if ads_files and st.button("Загрузить рекламу", key="btn_wb_ads"):
         from connectors.wb_ads_parser import parse_wb_ads_excel, distribute_ad_spend_by_revenue
-        from database.db import insert_ad_spend
+        from database.db import insert_ad_spend, log_sync as _log_sync
         total = 0
         for f in ads_files:
             try:
@@ -112,6 +119,13 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                         records = distribute_ad_spend_by_revenue(records, all_data_tmp)
                     n = insert_ad_spend(records)
                     total += n
+                _log_sync(
+                    "wb_ads", "ok", n,
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("total_spend", 0),
+                )
                 st.success(
                     f"**{f.name}**  \n"
                     f"{num(stats['campaigns'])} кампаний | {num(stats['total_rows'])} строк  \n"
@@ -119,22 +133,115 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                     f"Расходы: **{rub(stats['total_spend'])}**"
                 )
             except Exception as e:
+                _log_sync("wb_ads", "error", error=str(e), filename=f.name)
                 st.error(f"{f.name}: {e}")
         if total:
             st.rerun()
 
-# 3. Себестоимость
+# 3. Ozon — Начисления
+with st.sidebar.expander("📥 Отчёт Ozon (начисления)", expanded=False):
+    st.caption("ЛК Ozon → Финансы → Начисления → Скачать xlsx (широкий формат, 25 колонок)")
+    ozon_files = st.file_uploader(
+        "Выбери .xlsx файлы (можно несколько)",
+        type=["xlsx"], accept_multiple_files=True, key="ozon_sales",
+    )
+    if ozon_files and st.button("Загрузить отчёт Ozon", key="btn_ozon_sales"):
+        from connectors.ozon_excel_parser import parse_ozon_excel
+        from database.db import upsert_records, log_sync as _log
+        total = 0
+        for f in ozon_files:
+            try:
+                with st.spinner(f"Обрабатываю {f.name}…"):
+                    records, stats = parse_ozon_excel(f)
+                    upsert_records(records)
+                    total += len(records)
+                _log(
+                    "ozon", "ok", len(records),
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("revenue", 0),
+                )
+                st.success(
+                    f"**{f.name}**  \n"
+                    f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
+                    f"Период: {stats['date_from']} — {stats['date_to']}  \n"
+                    f"Выручка: **{rub(stats['revenue'])}** | К перечислению: **{rub(stats['net_profit'])}**  \n"
+                    f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])}  \n"
+                    f"Логистика: {rub(stats['logistics'])} | Хранение+Возвраты: {rub(stats['storage'])} | "
+                    f"Удержания: {rub(stats.get('uderzhaniya', 0))}"
+                )
+            except Exception as e:
+                _log("ozon", "error", error=str(e), filename=f.name)
+                st.error(f"{f.name}: {e}")
+        if total:
+            st.rerun()
+
+# 4. Ozon — Реклама
+with st.sidebar.expander("📥 Реклама Ozon (статистика)", expanded=False):
+    st.caption("ЛК Ozon → Продвижение → Статистика → Скачать xlsx")
+    ozon_ads_files = st.file_uploader(
+        "Выбери .xlsx файлы",
+        type=["xlsx"], accept_multiple_files=True, key="ozon_ads",
+    )
+    ozon_ads_date = st.date_input(
+        "Дата начала периода отчёта",
+        value=date.today().replace(day=1),
+        key="ozon_ads_date",
+    )
+    if ozon_ads_files and st.button("Загрузить рекламу Ozon", key="btn_ozon_ads"):
+        from connectors.ozon_ads_parser import parse_ozon_ads_excel
+        from database.db import insert_ad_spend, log_sync as _log2
+        total = 0
+        for f in ozon_ads_files:
+            try:
+                with st.spinner(f"Обрабатываю {f.name}…"):
+                    records, stats = parse_ozon_ads_excel(f, ozon_ads_date)
+                    n = insert_ad_spend(records)
+                    total += n
+                _log2(
+                    "ozon_ads", "ok", n,
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("total_spend", 0),
+                )
+                st.success(
+                    f"**{f.name}**  \n"
+                    f"{num(stats['campaigns'])} кампаний | {num(stats['skus'])} SKU  \n"
+                    f"Расходы: **{rub(stats['total_spend'])}**"
+                )
+            except Exception as e:
+                _log2("ozon_ads", "error", error=str(e), filename=f.name)
+                st.error(f"{f.name}: {e}")
+        if total:
+            st.rerun()
+
+# 5. Себестоимость
 with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=False):
     from connectors.cogs_parser import generate_cogs_template, parse_cogs_excel
     from database.db import upsert_cogs
 
     try:
+        from sqlalchemy import text as _sqlt
         with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
             existing = pd.read_sql_query(
-                __import__("sqlalchemy", fromlist=["text"]).text(
-                    "SELECT sku, product_name, cost_per_unit FROM cost_of_goods"
-                ), conn,
+                _sqlt("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn,
             ).to_dict("records")
+            if not existing:
+                # Pre-populate template: prefer Артикул поставщика, fallback to WB numeric SKU
+                sales_skus = pd.read_sql_query(
+                    _sqlt("SELECT DISTINCT sku, article, product_name FROM sales ORDER BY product_name"),
+                    conn,
+                ).to_dict("records")
+                existing = [
+                    {
+                        "sku": r["article"] if r.get("article") else r["sku"],
+                        "product_name": r["product_name"],
+                        "cost_per_unit": 0,
+                    }
+                    for r in sales_skus
+                ]
     except Exception:
         existing = []
 
@@ -158,7 +265,7 @@ with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=Fals
         except Exception as e:
             st.error(str(e))
 
-# 4. API синхронизация
+# 7. API синхронизация
 with st.sidebar.expander("🔄 API синхронизация", expanded=False):
     missing_tokens = []
     if not WB_API_TOKEN:
@@ -179,9 +286,12 @@ with st.sidebar.expander("🔄 API синхронизация", expanded=False):
 
 # 5. Очистка данных
 with st.sidebar.expander("🗑 Управление данными", expanded=False):
-    src_options = ["Все данные", "Только демо-данные (source=demo)", "Только Excel (source=excel)",
-                   "Только API (source=api)", "Только Google Sheets (source=gsheets)",
-                   "Только рекламные расходы (ad_spend)"]
+    src_options = [
+        "Отчёт WB (продажи)",        # только sales, реклама и себест. не затронуты
+        "Рекламные расходы",          # только ad_spend
+        "Себестоимость (COGS)",       # только cost_of_goods
+        "Все продажи и реклама",      # sales + ad_spend
+    ]
     clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
 
     if st.button("🗑 Очистить", key="btn_clear", type="secondary"):
@@ -195,22 +305,17 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                 try:
                     from sqlalchemy import text as sqlt
                     with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-                        if clear_target == "Все данные":
+                        if clear_target == "Все продажи и реклама":
                             conn.execute(sqlt("DELETE FROM sales"))
                             conn.execute(sqlt("DELETE FROM ad_spend"))
-                            conn.execute(sqlt("DELETE FROM sync_log"))
-                        elif "demo" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'demo'"))
-                        elif "excel" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source IN ('excel', 'excel_distributed')"))
-                            conn.execute(sqlt("DELETE FROM ad_spend WHERE source IN ('excel', 'excel_distributed')"))
-                        elif "api" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'api'"))
-                        elif "gsheets" in clear_target:
-                            conn.execute(sqlt("DELETE FROM sales WHERE source = 'gsheets'"))
-                        elif "ad_spend" in clear_target:
+                        elif clear_target == "Рекламные расходы":
                             conn.execute(sqlt("DELETE FROM ad_spend"))
                             conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
+                        elif clear_target == "Себестоимость (COGS)":
+                            conn.execute(sqlt("DELETE FROM cost_of_goods"))
+                        elif clear_target == "Отчёт WB (продажи)":
+                            # Удаляем только продажи; реклама и себестоимость остаются
+                            conn.execute(sqlt("DELETE FROM sales"))
                         conn.commit()
                     st.session_state["confirm_clear"] = False
                     st.success("Данные удалены")
@@ -268,7 +373,8 @@ st.title("📊 Finboard — Финансовая аналитика маркет
 st.caption(
     f"Период: {date_from} — {date_to} | "
     f"Записей: {num(len(df))} | "
-    f"Себестоимость: {'✅ загружена' if has_cogs else '❌ не задана'}"
+    f"Себестоимость: {'✅ загружена (' + str(len(cogs_map)) + ' SKU)' if has_cogs else '❌ не задана'} | "
+    f"v2026.05.17"
 )
 
 if df.empty:
@@ -289,10 +395,10 @@ r_margin = r_profit / net * 100 if net > 0 else 0
 total_qty = int(df["quantity"].sum())
 total_returns = int(df["return_quantity"].sum())
 
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("Выручка (брутто)", rub(gross))
 col2.metric("Выручка (нетто)", rub(net))
-col3.metric("К перечислению WB", rub(profit), delta=pct(margin))
+col3.metric("К перечислению МП", rub(profit), delta=pct(margin))
 col4.metric(
     "Продано / Возвращено",
     f"{num(total_qty)} шт.",
@@ -306,31 +412,33 @@ col5.metric(
     delta=pct(drr(df)) if ads > 0 else None,
     delta_color="inverse",
 )
+col6.metric(
+    "Себестоимость",
+    rub(cogs) if has_cogs else "не задана",
+    delta="загрузи COGS" if not has_cogs else None,
+    delta_color="off",
+)
 if has_cogs:
-    col6.metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
+    col7.metric("Реальная прибыль", rub(r_profit), delta=pct(r_margin))
 else:
-    col6.metric("Себестоимость", "не задана", delta="загрузи COGS", delta_color="off")
+    col7.metric("Реальная прибыль", "—", delta_color="off")
 
 st.divider()
 
 # ── COST BREAKDOWN ROW ────────────────────────────────────────────────────────
 
 st.subheader("Структура затрат")
-_log_direct = costs.get("logistics_direct", 0)
-_log_pvz    = costs["logistics"] - _log_direct
-c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(9)
-c1.metric("Комиссия WB",        rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),         delta_color="off")
-c2.metric("НДС на комиссию",    rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)),     delta_color="off")
-c3.metric("Эквайринг",          rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),          delta_color="off")
-c4.metric("Прямая (AI)",        rub(_log_direct),             pct(costs.get("logistics_direct_pct", 0)),   delta_color="off",
-          help="Услуги по доставке товара покупателю")
-c5.metric("Обратная ПВЗ (AJ)", rub(_log_pvz),                pct(costs.get("logistics_pct", 0) - costs.get("logistics_direct_pct", 0)), delta_color="off",
-          help="Возмещение за выдачу и возврат товаров на ПВЗ")
-c6.metric("Хранение + Приёмка", rub(costs["storage"]),       pct(costs.get("storage_pct", 0)),            delta_color="off",
-          help="Хранение + Операции на приёмке + Возмещение издержек")
-c7.metric("Возвраты",           rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),            delta_color="off")
-c8.metric("Штрафы",             rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),          delta_color="off")
-c9.metric("Удержания WB",       rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),        delta_color="off")
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+c1.metric("Комиссия МП",       rub(costs["commission"]),     pct(costs.get("commission_pct", 0)),     delta_color="off")
+c2.metric("НДС на комиссию",   rub(costs["vat_commission"]), pct(costs.get("vat_commission_pct", 0)), delta_color="off")
+c3.metric("Эквайринг",         rub(costs["acquiring"]),      pct(costs.get("acquiring_pct", 0)),      delta_color="off")
+c4.metric("Логистика",         rub(costs["logistics"]),      pct(costs.get("logistics_pct", 0)),      delta_color="off",
+          help="Услуги по доставке товара покупателю (совпадает с WB «Логистика»)")
+c5.metric("Хранение + ПВЗ",    rub(costs["storage"]),        pct(costs.get("storage_pct", 0)),        delta_color="off",
+          help="Хранение + Приёмка + ПВЗ + Возмещение издержек")
+c6.metric("Возвраты",          rub(costs["returns"]),        pct(costs.get("returns_pct", 0)),        delta_color="off")
+c7.metric("Штрафы",            rub(costs["penalties"]),      pct(costs.get("penalties_pct", 0)),      delta_color="off")
+c8.metric("Удержания МП",      rub(costs["uderzhaniya"]),    pct(costs.get("uderzhaniya_pct", 0)),    delta_color="off")
 
 st.divider()
 
@@ -339,15 +447,14 @@ st.divider()
 col_pie, col_dyn = st.columns([1, 2])
 
 with col_pie:
-    pie_labels = ["Комиссия WB", "НДС", "Эквайринг", "Прямая (AI)",
-                  "Обратная ПВЗ (AJ)", "Хранение+Приёмка", "Возвраты",
-                  "Штрафы", "Удержания WB", "Реклама", "К перечислению"]
+    pie_labels = ["Комиссия МП", "НДС", "Эквайринг", "Логистика",
+                  "Хранение+ПВЗ", "Возвраты", "Штрафы",
+                  "Удержания МП", "Реклама", "К перечислению"]
     pie_values = [
         max(costs["commission"], 0),
         max(costs["vat_commission"], 0),
         max(costs["acquiring"], 0),
-        max(costs.get("logistics_direct", 0), 0),
-        max(costs["logistics"] - costs.get("logistics_direct", 0), 0),
+        max(costs["logistics"], 0),
         max(costs["storage"], 0),
         max(costs["returns"], 0),
         max(costs["penalties"] + costs["cofinancing"], 0),
@@ -399,10 +506,25 @@ st.divider()
 
 st.subheader("Анализ по категориям")
 
-if not cats:
-    st.info("Категории не определены — они берутся из поля «Предмет» в отчёте WB.")
+if df.empty:
+    st.info("Нет данных для анализа.")
 else:
-    cat_df = df.groupby("category").agg(
+    # Pre-compute per-row COGS so we can sum it by category
+    df_cat = df.copy()
+    # Fill empty category with marketplace name so Ozon items aren't lumped into ""
+    df_cat["category"] = df_cat.apply(
+        lambda r: r["category"] if str(r.get("category") or "").strip()
+        else MP_LABELS.get(str(r.get("marketplace", "")), str(r.get("marketplace", "Прочее"))),
+        axis=1,
+    )
+    if has_cogs:
+        df_cat["_cogs_row"] = df_cat.apply(
+            lambda r: cogs_map.get(str(r["sku"]), 0.0) * int(r.get("quantity", 0)), axis=1
+        )
+    else:
+        df_cat["_cogs_row"] = 0.0
+
+    cat_df = df_cat.groupby("category").agg(
         revenue=("revenue", "sum"),
         returns=("returns", "sum"),
         commission=("commission", "sum"),
@@ -411,8 +533,10 @@ else:
         quantity=("quantity", "sum"),
         return_quantity=("return_quantity", "sum"),
         skus=("sku", "nunique"),
+        cogs_total=("_cogs_row", "sum"),
     ).reset_index()
     cat_df["net_revenue"] = cat_df["revenue"] - cat_df["returns"]
+    cat_df["real_profit"] = cat_df["net_profit"] - cat_df["cogs_total"]
     cat_df["margin_pct"] = (
         cat_df["net_profit"] / cat_df["net_revenue"] * 100
     ).where(cat_df["net_revenue"] > 0, 0).round(1)
@@ -448,32 +572,43 @@ else:
         fig_cat_mg.update_traces(textposition="outside")
         st.plotly_chart(fig_cat_mg, width="stretch")
 
+    cat_show = cat_df.copy()
+    rename_map = {
+        "category": "Категория",
+        "revenue": "Выручка, ₽",
+        "returns": "Возвраты, ₽",
+        "commission": "Комиссия, ₽",
+        "logistics": "Логистика, ₽",
+        "net_profit": "К перечислению, ₽",
+        "quantity": "Продано, шт.",
+        "return_quantity": "Возвращено, шт.",
+        "skus": "Товаров, шт.",
+        "net_revenue": "Нетто-выручка, ₽",
+        "margin_pct": "Маржа, %",
+        "return_rate_pct": "Возвраты, %",
+    }
+    fmt_map = {
+        "Выручка, ₽": lambda v: num(v),
+        "Возвраты, ₽": lambda v: num(v),
+        "Комиссия, ₽": lambda v: num(v),
+        "Логистика, ₽": lambda v: num(v),
+        "К перечислению, ₽": lambda v: num(v),
+        "Нетто-выручка, ₽": lambda v: num(v),
+        "Продано, шт.": lambda v: num(v),
+        "Возвращено, шт.": lambda v: num(v),
+        "Маржа, %": lambda v: f"{v:.1f}%",
+        "Возвраты, %": lambda v: f"{v:.1f}%",
+    }
+    if has_cogs:
+        rename_map["cogs_total"] = "Себестоимость, ₽"
+        rename_map["real_profit"] = "Реальная прибыль, ₽"
+        fmt_map["Себестоимость, ₽"] = lambda v: num(v)
+        fmt_map["Реальная прибыль, ₽"] = lambda v: num(v)
+    else:
+        cat_show = cat_show.drop(columns=["cogs_total", "real_profit"])
+
     st.dataframe(
-        cat_df.rename(columns={
-            "category": "Категория",
-            "revenue": "Выручка, ₽",
-            "returns": "Возвраты, ₽",
-            "commission": "Комиссия, ₽",
-            "logistics": "Логистика, ₽",
-            "net_profit": "К перечислению, ₽",
-            "quantity": "Продано, шт.",
-            "return_quantity": "Возвращено, шт.",
-            "skus": "SKU",
-            "net_revenue": "Нетто-выручка, ₽",
-            "margin_pct": "Маржа, %",
-            "return_rate_pct": "Возвраты, %",
-        }).style.format({
-            "Выручка, ₽": lambda v: num(v),
-            "Возвраты, ₽": lambda v: num(v),
-            "Комиссия, ₽": lambda v: num(v),
-            "Логистика, ₽": lambda v: num(v),
-            "К перечислению, ₽": lambda v: num(v),
-            "Нетто-выручка, ₽": lambda v: num(v),
-            "Продано, шт.": lambda v: num(v),
-            "Возвращено, шт.": lambda v: num(v),
-            "Маржа, %": lambda v: f"{v:.1f}%",
-            "Возвраты, %": lambda v: f"{v:.1f}%",
-        }),
+        cat_show.rename(columns=rename_map).style.format(fmt_map),
         width="stretch", hide_index=True,
     )
 
@@ -486,14 +621,15 @@ mp_comp = marketplace_comparison(df)
 if not mp_comp.empty:
     col_a, col_b = st.columns(2)
     with col_a:
+        _mp_bar = mp_comp.rename(columns={"revenue": "Выручка", "net_profit": "К перечислению"})
         fig_mp = px.bar(
-            mp_comp, x="marketplace", y=["revenue", "net_profit"],
+            _mp_bar, x="marketplace", y=["Выручка", "К перечислению"],
             barmode="group",
             labels={"value": "₽", "marketplace": "Маркетплейс", "variable": ""},
-            color_discrete_map={"revenue": "#4CAF50", "net_profit": "#2196F3"},
+            color_discrete_map={"Выручка": "#4CAF50", "К перечислению": "#2196F3"},
             title="Выручка и к перечислению",
         )
-        fig_mp.update_xaxes(tickvals=mp_comp["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in mp_comp["marketplace"]])
+        fig_mp.update_xaxes(tickvals=_mp_bar["marketplace"], ticktext=[MP_LABELS.get(m, m) for m in _mp_bar["marketplace"]])
         fig_mp.update_yaxes(tickformat=",.0f")
         st.plotly_chart(fig_mp, width="stretch")
     with col_b:
@@ -507,11 +643,17 @@ if not mp_comp.empty:
         fig_mg.update_yaxes(ticksuffix="%", tickformat=".1f")
         st.plotly_chart(fig_mg, width="stretch")
 
+    _mp_display_cols = [
+        "marketplace", "revenue", "returns", "commission", "vat_commission", "acquiring",
+        "logistics", "storage", "penalties", "uderzhaniya", "ad_spend",
+        "net_profit", "net_revenue", "margin_pct", "quantity",
+    ]
     st.dataframe(
-        mp_comp.assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
+        mp_comp[[c for c in _mp_display_cols if c in mp_comp.columns]]
+        .assign(marketplace=mp_comp["marketplace"].map(lambda m: MP_LABELS.get(m, m)))
         .rename(columns={
             "marketplace": "Маркетплейс", "revenue": "Выручка, ₽", "returns": "Возвраты, ₽",
-            "commission": "Комиссия WB, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
+            "commission": "Комиссия МП, ₽", "vat_commission": "НДС, ₽", "acquiring": "Эквайринг, ₽",
             "logistics": "Логистика (дост.), ₽", "storage": "Хранение+Приёмка, ₽",
             "penalties": "Штрафы, ₽", "uderzhaniya": "Удержания, ₽",
             "ad_spend": "Реклама, ₽",
@@ -566,7 +708,7 @@ if not top.empty:
     fmt_map = {
         "Выручка, ₽": lambda v: num(v),
         "К перечислению, ₽": lambda v: num(v),
-        "Маржа WB, %": lambda v: f"{v:.1f}%",
+        "Маржа МП, %": lambda v: f"{v:.1f}%",
         "Реальная маржа, %": lambda v: f"{v:.1f}%",
         "Возвраты, %": lambda v: f"{v:.1f}%",
         "Комиссия, %": lambda v: f"{v:.1f}%",
@@ -575,11 +717,18 @@ if not top.empty:
         "Продано, шт.": lambda v: num(v),
         "Возвращено, шт.": lambda v: num(v),
     }
+    top_display = top[show_cols].copy()
+    top_display["category"] = top_display.apply(
+        lambda r: r["category"] if str(r.get("category") or "").strip()
+        else MP_LABELS.get(str(r.get("marketplace", "")), ""),
+        axis=1,
+    )
+    top_display["marketplace"] = top_display["marketplace"].map(lambda m: MP_LABELS.get(m, m))
     st.dataframe(
-        top[show_cols].rename(columns={
+        top_display.rename(columns={
             "sku": "Артикул", "product_name": "Наименование", "category": "Категория",
             "marketplace": "МП", "revenue": "Выручка, ₽",
-            "net_profit": "К перечислению, ₽", "margin_pct": "Маржа WB, %",
+            "net_profit": "К перечислению, ₽", "margin_pct": "Маржа МП, %",
             "real_margin_pct": "Реальная маржа, %",
             "return_rate_pct": "Возвраты, %", "commission_pct": "Комиссия, %",
             "drr_pct": "ДРР, %", "logistics_per_unit": "Лог./ед, ₽",
@@ -629,17 +778,42 @@ with col_abc2:
 
 with st.sidebar:
     st.divider()
-    st.caption("История загрузок:")
-    try:
-        from sqlalchemy import text as sqlt
-        with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-            logs = pd.read_sql_query(
-                sqlt("SELECT marketplace, sync_at, status, records_count FROM sync_log ORDER BY sync_at DESC LIMIT 8"),
-                conn,
-            )
-        for _, row in logs.iterrows():
-            icon = "✅" if row["status"] == "ok" else "❌"
-            mp = MP_LABELS.get(row["marketplace"], row["marketplace"])
-            st.caption(f"{icon} {mp}: {str(row['sync_at'])[:16]} ({num(row['records_count'])} зап.)")
-    except Exception:
-        pass
+    with st.expander("📋 История загрузок", expanded=False):
+        try:
+            from sqlalchemy import text as sqlt
+            from database.db import delete_sync_log
+            with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
+                logs = pd.read_sql_query(
+                    sqlt("SELECT id, marketplace, sync_at, status, records_count, "
+                         "filename, date_from, date_to, revenue FROM sync_log "
+                         "ORDER BY sync_at DESC LIMIT 30"),
+                    conn,
+                )
+            if logs.empty:
+                st.caption("Загрузок пока нет")
+            else:
+                MP_ICON = {"wb": "🟣", "wb_ads": "📢", "ozon": "🔵", "ozon_ads": "📣", "other": "⚪"}
+                for _, row in logs.iterrows():
+                    status_icon = "✅" if row["status"] == "ok" else "❌"
+                    mp_icon = MP_ICON.get(str(row["marketplace"]), "⚪")
+                    fname = str(row.get("filename") or "").strip()
+                    d_from = str(row.get("date_from") or "")[:10]
+                    d_to   = str(row.get("date_to")   or "")[:10]
+                    rev    = row.get("revenue") or 0
+                    dt     = str(row["sync_at"])[:16]
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        period = f"{d_from} — {d_to}" if d_from else dt
+                        label = fname if fname else MP_LABELS.get(str(row["marketplace"]), str(row["marketplace"]))
+                        st.caption(
+                            f"{status_icon} {mp_icon} **{label}**  \n"
+                            f"{period}  \n"
+                            f"{num(row['records_count'])} зап." +
+                            (f" | {rub(rev)}" if rev else "")
+                        )
+                    with col2:
+                        if st.button("🗑", key=f"del_log_{row['id']}", help="Удалить запись из истории"):
+                            delete_sync_log(int(row["id"]))
+                            st.rerun()
+        except Exception:
+            pass

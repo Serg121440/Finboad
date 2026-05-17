@@ -2,10 +2,15 @@ from sqlalchemy import (
     create_engine, Column, String, Float, Date, DateTime, Integer, text, func
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from config import DATABASE_URL
 
 Base = declarative_base()
+
+_MSK = timezone(timedelta(hours=3))
+
+def _now_msk():
+    return datetime.now(_MSK).replace(tzinfo=None)
 
 
 class SaleRecord(Base):
@@ -15,6 +20,7 @@ class SaleRecord(Base):
     marketplace = Column(String(20), nullable=False)
     date = Column(Date, nullable=False)
     sku = Column(String(100), nullable=False)
+    article = Column(String(200), default="")   # Артикул поставщика
     product_name = Column(String(500))
     category = Column(String(200))
     # Core financials
@@ -39,7 +45,7 @@ class SaleRecord(Base):
     quantity = Column(Integer, default=0)
     return_quantity = Column(Integer, default=0)
     source = Column(String(20), default="api")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now_msk)
 
 
 class CostOfGoods(Base):
@@ -50,7 +56,7 @@ class CostOfGoods(Base):
     sku = Column(String(100), nullable=False, unique=True)
     product_name = Column(String(500))
     cost_per_unit = Column(Float, default=0.0)   # себестоимость за единицу
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_now_msk, onupdate=_now_msk)
 
 
 class AdSpend(Base):
@@ -66,7 +72,7 @@ class AdSpend(Base):
     amount = Column(Float, default=0.0)
     sku = Column(String(100))     # null если не привязана к SKU
     source = Column(String(20), default="excel")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now_msk)
 
 
 class SyncLog(Base):
@@ -74,10 +80,15 @@ class SyncLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     marketplace = Column(String(20))
-    sync_at = Column(DateTime, default=datetime.utcnow)
+    sync_at = Column(DateTime, default=_now_msk)
     status = Column(String(20))
     records_count = Column(Integer, default=0)
     error_message = Column(String(1000))
+    # Upload details
+    filename = Column(String(500), default="")
+    date_from = Column(Date, nullable=True)
+    date_to = Column(Date, nullable=True)
+    revenue = Column(Float, default=0.0)
 
 
 engine = create_engine(DATABASE_URL, echo=False)
@@ -91,7 +102,7 @@ def init_db():
 
 def _migrate():
     """Add new columns to existing DB without dropping data. Works for both SQLite and PostgreSQL."""
-    new_cols = [
+    sales_cols = [
         ("vat_commission", "DOUBLE PRECISION DEFAULT 0.0"),
         ("acquiring",      "DOUBLE PRECISION DEFAULT 0.0"),
         ("penalties",      "DOUBLE PRECISION DEFAULT 0.0"),
@@ -100,20 +111,31 @@ def _migrate():
         ("storage",            "DOUBLE PRECISION DEFAULT 0.0"),
         ("cofinancing",    "DOUBLE PRECISION DEFAULT 0.0"),
         ("ad_spend",       "DOUBLE PRECISION DEFAULT 0.0"),
+        ("article",        "TEXT DEFAULT ''"),
+    ]
+    sync_log_cols = [
+        ("filename",  "TEXT DEFAULT ''"),
+        ("date_from", "DATE"),
+        ("date_to",   "DATE"),
+        ("revenue",   "DOUBLE PRECISION DEFAULT 0.0"),
     ]
     try:
         with engine.connect() as conn:
             url = str(engine.url)
             if "sqlite" in url:
                 result = conn.execute(text("PRAGMA table_info(sales)"))
-                existing = [row[1] for row in result.fetchall()]
-                for col, typedef in new_cols:
-                    if col not in existing:
+                existing_sales = [row[1] for row in result.fetchall()]
+                for col, typedef in sales_cols:
+                    if col not in existing_sales:
                         conn.execute(text(f"ALTER TABLE sales ADD COLUMN {col} REAL DEFAULT 0.0"))
+                result2 = conn.execute(text("PRAGMA table_info(sync_log)"))
+                existing_log = [row[1] for row in result2.fetchall()]
+                for col, typedef in sync_log_cols:
+                    if col not in existing_log:
+                        conn.execute(text(f"ALTER TABLE sync_log ADD COLUMN {col} TEXT"))
                 conn.commit()
             else:
-                # PostgreSQL — use IF NOT EXISTS via DO block
-                for col, typedef in new_cols:
+                for col, typedef in sales_cols:
                     conn.execute(text(f"""
                         DO $$
                         BEGIN
@@ -122,6 +144,18 @@ def _migrate():
                                 WHERE table_name='sales' AND column_name='{col}'
                             ) THEN
                                 ALTER TABLE sales ADD COLUMN {col} {typedef};
+                            END IF;
+                        END $$;
+                    """))
+                for col, typedef in sync_log_cols:
+                    conn.execute(text(f"""
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name='sync_log' AND column_name='{col}'
+                            ) THEN
+                                ALTER TABLE sync_log ADD COLUMN {col} {typedef};
                             END IF;
                         END $$;
                     """))
@@ -161,6 +195,34 @@ def upsert_records(records: list[dict]):
                 session.add(SaleRecord(**clean))
                 count += 1
         session.commit()
+
+        # Cross-reference: for each sale with an article, if COGS has that article as key,
+        # add the WB numeric sku as an additional COGS entry so matching works by sku too.
+        try:
+            article_to_sku: dict[str, str] = {}
+            for rec in records:
+                article = str(rec.get("article") or "").strip()
+                sku = str(rec.get("sku") or "").strip()
+                if article and sku and article != sku:
+                    article_to_sku[article] = sku
+
+            if article_to_sku:
+                for article, wb_sku in article_to_sku.items():
+                    cogs_src = session.query(CostOfGoods).filter_by(sku=article).first()
+                    if cogs_src and cogs_src.cost_per_unit > 0:
+                        existing_wb = session.query(CostOfGoods).filter_by(sku=wb_sku).first()
+                        if existing_wb:
+                            existing_wb.cost_per_unit = cogs_src.cost_per_unit
+                        else:
+                            session.add(CostOfGoods(
+                                sku=wb_sku,
+                                product_name=cogs_src.product_name,
+                                cost_per_unit=cogs_src.cost_per_unit,
+                            ))
+                session.commit()
+        except Exception:
+            session.rollback()
+
         return count
     except Exception as e:
         session.rollback()
@@ -189,6 +251,39 @@ def upsert_cogs(records: list[dict]) -> int:
                 ))
                 count += 1
         session.commit()
+
+        # Cross-reference: find WB numeric SKUs in sales where article matches COGS key,
+        # then add duplicate COGS entries keyed by WB numeric SKU.
+        # This works regardless of whether sales.article column exists.
+        try:
+            with engine.connect() as conn:
+                # Try with article column first (new schema)
+                try:
+                    rows = conn.execute(text(
+                        "SELECT DISTINCT sku, article FROM sales "
+                        "WHERE article IS NOT NULL AND article != ''"
+                    )).fetchall()
+                    article_to_wb = {str(r[1]): str(r[0]) for r in rows if r[1] != r[0]}
+                except Exception:
+                    article_to_wb = {}
+
+                if article_to_wb:
+                    for article_key, wb_sku in article_to_wb.items():
+                        cog = session.query(CostOfGoods).filter_by(sku=article_key).first()
+                        if cog and cog.cost_per_unit > 0:
+                            wb_entry = session.query(CostOfGoods).filter_by(sku=wb_sku).first()
+                            if wb_entry:
+                                wb_entry.cost_per_unit = cog.cost_per_unit
+                            else:
+                                session.add(CostOfGoods(
+                                    sku=wb_sku,
+                                    product_name=cog.product_name,
+                                    cost_per_unit=cog.cost_per_unit,
+                                ))
+                    session.commit()
+        except Exception:
+            pass
+
         return count
     except Exception as e:
         session.rollback()
@@ -267,7 +362,16 @@ def insert_ad_spend(records: list[dict]) -> int:
         session.close()
 
 
-def log_sync(marketplace: str, status: str, records_count: int = 0, error: str = None):
+def log_sync(
+    marketplace: str,
+    status: str,
+    records_count: int = 0,
+    error: str = None,
+    filename: str = "",
+    date_from=None,
+    date_to=None,
+    revenue: float = 0.0,
+):
     session = get_session()
     try:
         entry = SyncLog(
@@ -275,8 +379,21 @@ def log_sync(marketplace: str, status: str, records_count: int = 0, error: str =
             status=status,
             records_count=records_count,
             error_message=error,
+            filename=filename or "",
+            date_from=date_from,
+            date_to=date_to,
+            revenue=revenue,
         )
         session.add(entry)
+        session.commit()
+    finally:
+        session.close()
+
+
+def delete_sync_log(log_id: int):
+    session = get_session()
+    try:
+        session.query(SyncLog).filter_by(id=log_id).delete()
         session.commit()
     finally:
         session.close()

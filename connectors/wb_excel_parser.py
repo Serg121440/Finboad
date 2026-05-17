@@ -22,6 +22,8 @@ WB_COLUMNS = {
     "sale_date":    "Дата продажи",
     # Количество
     "quantity":     "Кол-во",
+    "qty_delivery": "Количество доставок",   # прямая доставка покупателю (колонка AI)
+    "qty_return":   "Количество возврата",   # физический возврат через ПВЗ (колонка AJ)
     # Цены
     "revenue":      "Вайлдберриз реализовал Товар (Пр)",
     # К перечислению (per row — already has commission/vat/acquiring deducted)
@@ -110,6 +112,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "marketplace":    "wb",
                 "date":           sale_date,
                 "sku":            sku,
+                "article":        str(row.get(col.get("article", ""), "") or "").strip().upper(),
                 "product_name":   str(row.get(col.get("name", ""), "") or ""),
                 "category":       str(row.get(col.get("predmet", ""), "") or ""),
                 # Core financials
@@ -121,14 +124,14 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "vat_commission": 0.0,
                 "acquiring":      0.0,
                 # Logistics breakdown
-                "logistics":         0.0,   # Общая = прямая (AI) + ПВЗ обратная (AJ)
-                "logistics_direct":  0.0,   # Прямая доставка (AI)
+                "logistics":         0.0,
+                "logistics_direct":  0.0,
                 # Хранение + Приёмка + Возмещение издержек (отдельная статья)
                 "storage":           0.0,
                 # Other deductions
-                "penalties":      0.0,   # штрафы WB
-                "uderzhaniya":    0.0,   # прочие удержания/выплаты WB
-                "cofinancing":    0.0,   # скидки/лояльность/промо
+                "penalties":      0.0,
+                "uderzhaniya":    0.0,
+                "cofinancing":    0.0,
                 # Quantities
                 "quantity":       0,
                 "return_quantity": 0,
@@ -144,6 +147,12 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             }
 
         rec = aggregated[key]
+
+        # Update article whenever we find a non-empty value (first row may be a service row)
+        if not rec.get("article"):
+            raw_article = str(row.get(col.get("article", ""), "") or "").strip().upper()
+            if raw_article:
+                rec["article"] = raw_article
 
         revenue     = _safe_float(row.get(col.get("revenue", ""), 0))
         net         = _safe_float(row.get(col.get("net_to_seller", ""), 0))
@@ -163,7 +172,9 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         loyalty_pts = abs(_safe_float(row.get(col.get("loyalty_pts", ""), 0)))
         loyalty_comp= abs(_safe_float(row.get(col.get("loyalty_comp", ""), 0)))
         promo       = abs(_safe_float(row.get(col.get("promo", ""), 0)))
-        qty         = int(_safe_float(row.get(col.get("quantity", ""), 0)))
+        qty          = int(_safe_float(row.get(col.get("quantity", ""), 0)))
+        qty_delivery = int(_safe_float(row.get(col.get("qty_delivery", ""), 0)))
+        qty_return   = int(_safe_float(row.get(col.get("qty_return", ""), 0)))
 
         is_return = doc_type in ("Возврат", "Коррекция возврата") or revenue < 0
 
@@ -171,15 +182,21 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             # Financial return: deducted from seller payout
             rec["returns"]    += abs(revenue)
             rec["_k_returns"] += abs(net)
-            # return_quantity counts physical items via PVZ rows below, not here
+            # return_quantity counts physical items via logistics rows below, not here
         elif doc_type == "Продажа":
             # Only actual sales contribute to quantity and revenue
             rec["revenue"]   += revenue
             rec["quantity"]  += qty
             rec["_k_sales"]  += net
 
-        # Physical return count: PVZ fee rows (AJ column) track items returned via PVZ
-        if pvz > 0:
+        # Physical return count: only rows where Количество возврата > 0 AND
+        # Количество доставок == 0 (return logistics row, not a forward delivery).
+        # Forward delivery rows have qty_delivery=1, qty_return=0.
+        # Fall back to pvz>0 for older reports that lack these columns.
+        if "qty_return" in col and "qty_delivery" in col:
+            if qty_return > 0 and qty_delivery == 0:
+                rec["return_quantity"] += qty_return
+        elif pvz > 0 and qty > 0:
             rec["return_quantity"] += abs(qty)
 
         # Commission components (informational — already embedded in К перечислению)
@@ -200,8 +217,31 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         # Cofinancing / loyalty / promo (informational)
         rec["cofinancing"]   += cofinancing + loyalty_cost + loyalty_pts + loyalty_comp + promo
 
-    # Finalize records
-    records = list(aggregated.values())
+    # Separate real product records from service rows (sku=0/unknown).
+    # Service rows carry global costs (uderzhaniya, хранение, приёмка) that are
+    # not tied to any SKU — collect and distribute proportionally to real records.
+    service_costs = {"_storage": 0.0, "_acceptance": 0.0, "uderzhaniya": 0.0, "penalties": 0.0}
+    for v in aggregated.values():
+        if v["sku"] in ("0", "unknown"):
+            service_costs["_storage"]    += v.get("_storage", 0)
+            service_costs["_acceptance"] += v.get("_acceptance", 0)
+            service_costs["uderzhaniya"] += v.get("uderzhaniya", 0)
+            service_costs["penalties"]   += v.get("penalties", 0)
+
+    records = [v for v in aggregated.values() if v["sku"] not in ("0", "unknown")]
+
+    # Distribute service-level costs proportionally by К перечислению (k_sales)
+    total_k = sum(r.get("_k_sales", 0) for r in records)
+    for r in records:
+        if total_k > 0:
+            share = r.get("_k_sales", 0) / total_k
+        else:
+            share = 1.0 / len(records) if records else 0.0
+        r["_storage"]    += service_costs["_storage"] * share
+        r["_acceptance"] += service_costs["_acceptance"] * share
+        r["uderzhaniya"] += service_costs["uderzhaniya"] * share
+        r["penalties"]   += service_costs["penalties"] * share
+
     for r in records:
         k_sales   = r.pop("_k_sales", 0)
         k_returns = r.pop("_k_returns", 0)
@@ -212,8 +252,8 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
         acc       = r.pop("_acceptance", 0)
 
         # net_profit = actual payout (matches WB «Итого к оплате»)
-        # К перечислению per-sale already includes: revenue − commission − vat − acquiring − sofin
-        # We additionally deduct: logistics_delivery + storage + acceptance + uderzhaniya + penalties
+        # log_trans (Возмещение издержек) and pvz are already embedded in
+        # per-sale К перечислению — do NOT deduct again here.
         r["net_profit"] = (
             k_sales
             - k_returns
@@ -224,11 +264,11 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
             - r["uderzhaniya"]
         )
 
-        # Логистика = прямая (AI) + ПВЗ обратная (AJ) — matches WB «Логистика» in summary
-        r["logistics"]        = log_del + pvz
-        r["logistics_direct"] = log_del           # прямая (AI) — for breakdown display
-        # Хранение + Приёмка + Возмещение издержек (separate line in cost structure)
-        r["storage"] = stor + acc + log_trans
+        # Логистика = только «Услуги по доставке покупателю» (matches WB summary «Логистика»)
+        r["logistics"]        = log_del
+        r["logistics_direct"] = log_del
+        # Хранение + Приёмка + ПВЗ + Возмещение издержек (informational, not in net_profit)
+        r["storage"] = stor + acc + log_trans + pvz
 
     stats = {
         "total_rows":    len(df),
