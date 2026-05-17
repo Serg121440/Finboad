@@ -71,6 +71,13 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     records, stats = parse_wb_excel(f)
                     upsert_records(records)
                     total += len(records)
+                log_sync(
+                    "wb", "ok", len(records),
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("revenue", 0),
+                )
                 st.success(
                     f"**{f.name}**  \n"
                     f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
@@ -82,9 +89,9 @@ with st.sidebar.expander("📥 Отчёт WB (реализация)", expanded=T
                     f"Удержания: {rub(stats.get('uderzhaniya', 0))}"
                 )
             except Exception as e:
+                log_sync("wb", "error", error=str(e), filename=f.name)
                 st.error(f"{f.name}: {e}")
         if total:
-            log_sync("wb", "ok", total)
             st.rerun()
 
 # 2. WB Реклама
@@ -101,7 +108,7 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
     )
     if ads_files and st.button("Загрузить рекламу", key="btn_wb_ads"):
         from connectors.wb_ads_parser import parse_wb_ads_excel, distribute_ad_spend_by_revenue
-        from database.db import insert_ad_spend
+        from database.db import insert_ad_spend, log_sync as _log_sync
         total = 0
         for f in ads_files:
             try:
@@ -112,6 +119,13 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                         records = distribute_ad_spend_by_revenue(records, all_data_tmp)
                     n = insert_ad_spend(records)
                     total += n
+                _log_sync(
+                    "wb_ads", "ok", n,
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("total_spend", 0),
+                )
                 st.success(
                     f"**{f.name}**  \n"
                     f"{num(stats['campaigns'])} кампаний | {num(stats['total_rows'])} строк  \n"
@@ -119,6 +133,7 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
                     f"Расходы: **{rub(stats['total_spend'])}**"
                 )
             except Exception as e:
+                _log_sync("wb_ads", "error", error=str(e), filename=f.name)
                 st.error(f"{f.name}: {e}")
         if total:
             st.rerun()
@@ -670,17 +685,42 @@ with col_abc2:
 
 with st.sidebar:
     st.divider()
-    st.caption("История загрузок:")
-    try:
-        from sqlalchemy import text as sqlt
-        with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
-            logs = pd.read_sql_query(
-                sqlt("SELECT marketplace, sync_at, status, records_count FROM sync_log ORDER BY sync_at DESC LIMIT 8"),
-                conn,
-            )
-        for _, row in logs.iterrows():
-            icon = "✅" if row["status"] == "ok" else "❌"
-            mp = MP_LABELS.get(row["marketplace"], row["marketplace"])
-            st.caption(f"{icon} {mp}: {str(row['sync_at'])[:16]} ({num(row['records_count'])} зап.)")
-    except Exception:
-        pass
+    with st.expander("📋 История загрузок", expanded=False):
+        try:
+            from sqlalchemy import text as sqlt
+            from database.db import delete_sync_log
+            with __import__("database.db", fromlist=["engine"]).engine.connect() as conn:
+                logs = pd.read_sql_query(
+                    sqlt("SELECT id, marketplace, sync_at, status, records_count, "
+                         "filename, date_from, date_to, revenue FROM sync_log "
+                         "ORDER BY sync_at DESC LIMIT 30"),
+                    conn,
+                )
+            if logs.empty:
+                st.caption("Загрузок пока нет")
+            else:
+                MP_ICON = {"wb": "🟣", "wb_ads": "📢", "other": "⚪"}
+                for _, row in logs.iterrows():
+                    status_icon = "✅" if row["status"] == "ok" else "❌"
+                    mp_icon = MP_ICON.get(str(row["marketplace"]), "⚪")
+                    fname = str(row.get("filename") or "").strip()
+                    d_from = str(row.get("date_from") or "")[:10]
+                    d_to   = str(row.get("date_to")   or "")[:10]
+                    rev    = row.get("revenue") or 0
+                    dt     = str(row["sync_at"])[:16]
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        period = f"{d_from} — {d_to}" if d_from else dt
+                        label = fname if fname else MP_LABELS.get(str(row["marketplace"]), str(row["marketplace"]))
+                        st.caption(
+                            f"{status_icon} {mp_icon} **{label}**  \n"
+                            f"{period}  \n"
+                            f"{num(row['records_count'])} зап." +
+                            (f" | {rub(rev)}" if rev else "")
+                        )
+                    with col2:
+                        if st.button("🗑", key=f"del_log_{row['id']}", help="Удалить запись из истории"):
+                            delete_sync_log(int(row["id"]))
+                            st.rerun()
+        except Exception:
+            pass
