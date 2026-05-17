@@ -108,7 +108,7 @@ def inject_css():
     p = palette()
     is_dark = current_mode() == "dark"
 
-    st.markdown(f"""
+    st.html(f"""
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       html, body, [class*="css"], .stApp {{
@@ -272,7 +272,7 @@ def inject_css():
       .fb-status-dot.ok  {{ background: {SUCCESS}; box-shadow: 0 0 8px {SUCCESS}; }}
       .fb-status-dot.err {{ background: {DANGER}; }}
     </style>
-    """, unsafe_allow_html=True)
+    """)
 
 
 def brand_block():
