@@ -51,43 +51,13 @@ def load_data(
 
 
 def load_cogs() -> dict[str, float]:
-    """Return {wb_sku: cost_per_unit} supporting article, sku, and product_name matching."""
+    """Return {wb_sku: cost_per_unit}. Keys are WB numeric SKUs (Код номенклатуры)."""
     try:
         with engine.connect() as conn:
             cogs = pd.read_sql_query(
-                text("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn
+                text("SELECT sku, cost_per_unit FROM cost_of_goods"), conn
             )
-            # Primary map: {stored_key → cost} (stored_key may be article like СГ000006454)
-            result: dict[str, float] = dict(zip(cogs["sku"].astype(str), cogs["cost_per_unit"]))
-
-            # Cross-reference with sales to build {wb_numeric_sku → cost}
-            try:
-                sales = pd.read_sql_query(
-                    text("SELECT DISTINCT sku, article, product_name FROM sales"), conn
-                )
-                # Build name→cost from COGS for product_name fallback
-                name_to_cost = {
-                    str(r["product_name"]).strip(): r["cost_per_unit"]
-                    for _, r in cogs.iterrows()
-                    if str(r["product_name"]).strip()
-                }
-                for _, row in sales.iterrows():
-                    wb_sku = str(row["sku"])
-                    if wb_sku in result:
-                        continue
-                    # 1. Match by article (new code path)
-                    article = str(row.get("article") or "").strip()
-                    if article and article in result:
-                        result[wb_sku] = result[article]
-                        continue
-                    # 2. Match by product_name (fallback for old records without article)
-                    pname = str(row.get("product_name") or "").strip()
-                    if pname and pname in name_to_cost:
-                        result[wb_sku] = name_to_cost[pname]
-            except Exception:
-                pass
-
-            return result
+            return dict(zip(cogs["sku"].astype(str), cogs["cost_per_unit"]))
     except Exception:
         return {}
 
@@ -127,7 +97,7 @@ def total_ad_spend(df: pd.DataFrame) -> float:
 def total_cogs(df: pd.DataFrame, cogs_map: dict) -> float:
     total = 0.0
     for _, row in df.iterrows():
-        cost = cogs_map.get(str(row.get("article", "")), cogs_map.get(str(row["sku"]), 0.0))
+        cost = cogs_map.get(str(row["sku"]), 0.0)
         total += cost * int(row.get("quantity", 0))
     return total
 
@@ -172,7 +142,7 @@ def margin_by_sku(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
 
     grouped["net_revenue"] = grouped["revenue"] - grouped["returns"]
     grouped["cogs_total"] = grouped.apply(
-        lambda r: cogs_map.get(str(r.get("article", "")), cogs_map.get(str(r["sku"]), 0.0)) * r["quantity"], axis=1
+        lambda r: cogs_map.get(str(r["sku"]), 0.0) * r["quantity"], axis=1
     )
     grouped["real_profit"] = grouped["net_profit"] - grouped["cogs_total"] - grouped["ad_spend"]
 

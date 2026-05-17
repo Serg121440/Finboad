@@ -135,12 +135,12 @@ with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=Fals
                 _sqlt("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn,
             ).to_dict("records")
             if not existing:
-                # Pre-populate template from sales using Артикул поставщика
+                # Pre-populate template from sales using WB numeric SKU (always available)
                 sales_skus = pd.read_sql_query(
-                    _sqlt("SELECT DISTINCT article, product_name FROM sales WHERE article != '' ORDER BY article"),
+                    _sqlt("SELECT DISTINCT sku, product_name FROM sales ORDER BY product_name"),
                     conn,
                 ).to_dict("records")
-                existing = [{"sku": r["article"], "product_name": r["product_name"], "cost_per_unit": 0} for r in sales_skus]
+                existing = [{"sku": r["sku"], "product_name": r["product_name"], "cost_per_unit": 0} for r in sales_skus]
     except Exception:
         existing = []
 
@@ -412,7 +412,7 @@ else:
     df_cat = df.copy()
     if has_cogs:
         df_cat["_cogs_row"] = df_cat.apply(
-            lambda r: cogs_map.get(str(r.get("article", "")), cogs_map.get(str(r["sku"]), 0.0)) * int(r.get("quantity", 0)), axis=1
+            lambda r: cogs_map.get(str(r["sku"]), 0.0) * int(r.get("quantity", 0)), axis=1
         )
     else:
         df_cat["_cogs_row"] = 0.0
