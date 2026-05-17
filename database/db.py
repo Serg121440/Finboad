@@ -2,10 +2,15 @@ from sqlalchemy import (
     create_engine, Column, String, Float, Date, DateTime, Integer, text, func
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from config import DATABASE_URL
 
 Base = declarative_base()
+
+_MSK = timezone(timedelta(hours=3))
+
+def _now_msk():
+    return datetime.now(_MSK).replace(tzinfo=None)
 
 
 class SaleRecord(Base):
@@ -40,7 +45,7 @@ class SaleRecord(Base):
     quantity = Column(Integer, default=0)
     return_quantity = Column(Integer, default=0)
     source = Column(String(20), default="api")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now_msk)
 
 
 class CostOfGoods(Base):
@@ -51,7 +56,7 @@ class CostOfGoods(Base):
     sku = Column(String(100), nullable=False, unique=True)
     product_name = Column(String(500))
     cost_per_unit = Column(Float, default=0.0)   # себестоимость за единицу
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_now_msk, onupdate=_now_msk)
 
 
 class AdSpend(Base):
@@ -67,7 +72,7 @@ class AdSpend(Base):
     amount = Column(Float, default=0.0)
     sku = Column(String(100))     # null если не привязана к SKU
     source = Column(String(20), default="excel")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now_msk)
 
 
 class SyncLog(Base):
@@ -75,7 +80,7 @@ class SyncLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     marketplace = Column(String(20))
-    sync_at = Column(DateTime, default=datetime.utcnow)
+    sync_at = Column(DateTime, default=_now_msk)
     status = Column(String(20))
     records_count = Column(Integer, default=0)
     error_message = Column(String(1000))
