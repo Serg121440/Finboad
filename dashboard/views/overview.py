@@ -145,25 +145,26 @@ def render():
 
     st.divider()
 
-    # Cost breakdown
+    # Cost breakdown — 2 rows of 4
     st.subheader("Структура затрат")
-    c = st.columns(8)
-    c[0].metric("Комиссия МП", rub(costs["commission"]),
-                pct(costs.get("commission_pct", 0)), delta_color="off")
-    c[1].metric("НДС на комиссию", rub(costs["vat_commission"]),
-                pct(costs.get("vat_commission_pct", 0)), delta_color="off")
-    c[2].metric("Эквайринг", rub(costs["acquiring"]),
-                pct(costs.get("acquiring_pct", 0)), delta_color="off")
-    c[3].metric("Логистика", rub(costs["logistics"]),
-                pct(costs.get("logistics_pct", 0)), delta_color="off")
-    c[4].metric("Хранение + ПВЗ", rub(costs["storage"]),
-                pct(costs.get("storage_pct", 0)), delta_color="off")
-    c[5].metric("Возвраты", rub(costs["returns"]),
-                pct(costs.get("returns_pct", 0)), delta_color="off")
-    c[6].metric("Штрафы", rub(costs["penalties"]),
-                pct(costs.get("penalties_pct", 0)), delta_color="off")
-    c[7].metric("Удержания МП", rub(costs["uderzhaniya"]),
-                pct(costs.get("uderzhaniya_pct", 0)), delta_color="off")
+    cr1 = st.columns(4)
+    cr1[0].metric("Комиссия МП",    rub(costs["commission"]),
+                  pct(costs.get("commission_pct", 0)), delta_color="off")
+    cr1[1].metric("НДС на комиссию", rub(costs["vat_commission"]),
+                  pct(costs.get("vat_commission_pct", 0)), delta_color="off")
+    cr1[2].metric("Эквайринг",      rub(costs["acquiring"]),
+                  pct(costs.get("acquiring_pct", 0)), delta_color="off")
+    cr1[3].metric("Логистика",      rub(costs["logistics"]),
+                  pct(costs.get("logistics_pct", 0)), delta_color="off")
+    cr2 = st.columns(4)
+    cr2[0].metric("Хранение + ПВЗ", rub(costs["storage"]),
+                  pct(costs.get("storage_pct", 0)), delta_color="off")
+    cr2[1].metric("Возвраты",       rub(costs["returns"]),
+                  pct(costs.get("returns_pct", 0)), delta_color="off")
+    cr2[2].metric("Штрафы",         rub(costs["penalties"]),
+                  pct(costs.get("penalties_pct", 0)), delta_color="off")
+    cr2[3].metric("Удержания МП",   rub(costs["uderzhaniya"]),
+                  pct(costs.get("uderzhaniya_pct", 0)), delta_color="off")
 
     st.divider()
 
