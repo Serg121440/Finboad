@@ -269,7 +269,8 @@ st.title("📊 Finboard — Финансовая аналитика маркет
 st.caption(
     f"Период: {date_from} — {date_to} | "
     f"Записей: {num(len(df))} | "
-    f"Себестоимость: {'✅ загружена' if has_cogs else '❌ не задана'}"
+    f"Себестоимость: {'✅ загружена (' + str(len(cogs_map)) + ' SKU)' if has_cogs else '❌ не задана'} | "
+    f"v2026.05.17"
 )
 
 if df.empty:

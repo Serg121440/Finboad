@@ -219,6 +219,39 @@ def upsert_cogs(records: list[dict]) -> int:
                 ))
                 count += 1
         session.commit()
+
+        # Cross-reference: find WB numeric SKUs in sales where article matches COGS key,
+        # then add duplicate COGS entries keyed by WB numeric SKU.
+        # This works regardless of whether sales.article column exists.
+        try:
+            with engine.connect() as conn:
+                # Try with article column first (new schema)
+                try:
+                    rows = conn.execute(text(
+                        "SELECT DISTINCT sku, article FROM sales "
+                        "WHERE article IS NOT NULL AND article != ''"
+                    )).fetchall()
+                    article_to_wb = {str(r[1]): str(r[0]) for r in rows if r[1] != r[0]}
+                except Exception:
+                    article_to_wb = {}
+
+                if article_to_wb:
+                    for article_key, wb_sku in article_to_wb.items():
+                        cog = session.query(CostOfGoods).filter_by(sku=article_key).first()
+                        if cog and cog.cost_per_unit > 0:
+                            wb_entry = session.query(CostOfGoods).filter_by(sku=wb_sku).first()
+                            if wb_entry:
+                                wb_entry.cost_per_unit = cog.cost_per_unit
+                            else:
+                                session.add(CostOfGoods(
+                                    sku=wb_sku,
+                                    product_name=cog.product_name,
+                                    cost_per_unit=cog.cost_per_unit,
+                                ))
+                    session.commit()
+        except Exception:
+            pass
+
         return count
     except Exception as e:
         session.rollback()
