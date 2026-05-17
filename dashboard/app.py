@@ -138,7 +138,86 @@ with st.sidebar.expander("📥 Реклама WB (история затрат)",
         if total:
             st.rerun()
 
-# 3. Себестоимость
+# 3. Ozon — Начисления
+with st.sidebar.expander("📥 Отчёт Ozon (начисления)", expanded=False):
+    st.caption("ЛК Ozon → Финансы → Начисления → Скачать xlsx (широкий формат, 25 колонок)")
+    ozon_files = st.file_uploader(
+        "Выбери .xlsx файлы (можно несколько)",
+        type=["xlsx"], accept_multiple_files=True, key="ozon_sales",
+    )
+    if ozon_files and st.button("Загрузить отчёт Ozon", key="btn_ozon_sales"):
+        from connectors.ozon_excel_parser import parse_ozon_excel
+        from database.db import upsert_records, log_sync as _log
+        total = 0
+        for f in ozon_files:
+            try:
+                with st.spinner(f"Обрабатываю {f.name}…"):
+                    records, stats = parse_ozon_excel(f)
+                    upsert_records(records)
+                    total += len(records)
+                _log(
+                    "ozon", "ok", len(records),
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("revenue", 0),
+                )
+                st.success(
+                    f"**{f.name}**  \n"
+                    f"{num(stats['total_rows'])} строк → {num(len(records))} записей | {num(stats['skus'])} SKU  \n"
+                    f"Период: {stats['date_from']} — {stats['date_to']}  \n"
+                    f"Выручка: **{rub(stats['revenue'])}** | К перечислению: **{rub(stats['net_profit'])}**  \n"
+                    f"Комиссия: {rub(stats['commission'])} | Эквайринг: {rub(stats['acquiring'])}  \n"
+                    f"Логистика: {rub(stats['logistics'])} | Хранение+Возвраты: {rub(stats['storage'])} | "
+                    f"Удержания: {rub(stats.get('uderzhaniya', 0))}"
+                )
+            except Exception as e:
+                _log("ozon", "error", error=str(e), filename=f.name)
+                st.error(f"{f.name}: {e}")
+        if total:
+            st.rerun()
+
+# 4. Ozon — Реклама
+with st.sidebar.expander("📥 Реклама Ozon (статистика)", expanded=False):
+    st.caption("ЛК Ozon → Продвижение → Статистика → Скачать xlsx")
+    ozon_ads_files = st.file_uploader(
+        "Выбери .xlsx файлы",
+        type=["xlsx"], accept_multiple_files=True, key="ozon_ads",
+    )
+    ozon_ads_date = st.date_input(
+        "Дата начала периода отчёта",
+        value=date.today().replace(day=1),
+        key="ozon_ads_date",
+    )
+    if ozon_ads_files and st.button("Загрузить рекламу Ozon", key="btn_ozon_ads"):
+        from connectors.ozon_ads_parser import parse_ozon_ads_excel
+        from database.db import insert_ad_spend, log_sync as _log2
+        total = 0
+        for f in ozon_ads_files:
+            try:
+                with st.spinner(f"Обрабатываю {f.name}…"):
+                    records, stats = parse_ozon_ads_excel(f, ozon_ads_date)
+                    n = insert_ad_spend(records)
+                    total += n
+                _log2(
+                    "ozon_ads", "ok", n,
+                    filename=f.name,
+                    date_from=stats.get("date_from"),
+                    date_to=stats.get("date_to"),
+                    revenue=stats.get("total_spend", 0),
+                )
+                st.success(
+                    f"**{f.name}**  \n"
+                    f"{num(stats['campaigns'])} кампаний | {num(stats['skus'])} SKU  \n"
+                    f"Расходы: **{rub(stats['total_spend'])}**"
+                )
+            except Exception as e:
+                _log2("ozon_ads", "error", error=str(e), filename=f.name)
+                st.error(f"{f.name}: {e}")
+        if total:
+            st.rerun()
+
+# 5. Себестоимость
 with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=False):
     from connectors.cogs_parser import generate_cogs_template, parse_cogs_excel
     from database.db import upsert_cogs
@@ -186,7 +265,7 @@ with st.sidebar.expander("📥 Себестоимость (COGS)", expanded=Fals
         except Exception as e:
             st.error(str(e))
 
-# 4. API синхронизация
+# 7. API синхронизация
 with st.sidebar.expander("🔄 API синхронизация", expanded=False):
     missing_tokens = []
     if not WB_API_TOKEN:
@@ -699,7 +778,7 @@ with st.sidebar:
             if logs.empty:
                 st.caption("Загрузок пока нет")
             else:
-                MP_ICON = {"wb": "🟣", "wb_ads": "📢", "other": "⚪"}
+                MP_ICON = {"wb": "🟣", "wb_ads": "📢", "ozon": "🔵", "ozon_ads": "📣", "other": "⚪"}
                 for _, row in logs.iterrows():
                     status_icon = "✅" if row["status"] == "ok" else "❌"
                     mp_icon = MP_ICON.get(str(row["marketplace"]), "⚪")
