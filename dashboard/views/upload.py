@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from datetime import date
 
-from analytics.metrics import load_data
+from analytics.metrics import load_data, load_cogs
 from dashboard.shared import rub, num, render_sync_log_sidebar
 from dashboard.theme import status_dot
 
@@ -66,6 +66,8 @@ def _wb_sales_card():
                     log_sync("wb", "error", error=str(e), filename=f.name)
                     st.error(f"{f.name}: {e}")
             if total:
+                load_data.clear()
+                load_cogs.clear()
                 st.rerun()
 
 
@@ -97,6 +99,7 @@ def _ozon_sales_card():
                     log_sync("ozon", "error", error=str(e), filename=f.name)
                     st.error(f"{f.name}: {e}")
             if total:
+                load_data.clear()
                 st.rerun()
 
 
@@ -149,6 +152,7 @@ def _cogs_card():
                 records, n = parse_cogs_excel(cogs_file)
                 upsert_cogs(records)
                 st.success(f"Сохранено {n} SKU")
+                load_cogs.clear()
                 st.rerun()
             except Exception as e:
                 st.error(str(e))
@@ -190,6 +194,7 @@ def _wb_ads_card():
                     log_sync("wb_ads", "error", error=str(e), filename=f.name)
                     st.error(f"{f.name}: {e}")
             if total:
+                load_data.clear()
                 st.rerun()
 
 
@@ -225,6 +230,7 @@ def _ozon_ads_card():
                              filename=f.name)
                     st.error(f"{f.name}: {e}")
             if total:
+                load_data.clear()
                 st.rerun()
 
 

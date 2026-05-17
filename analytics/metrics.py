@@ -2,15 +2,17 @@
 
 import pandas as pd
 import numpy as np
+import streamlit as st
 from sqlalchemy import text
 from database.db import engine
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_data(
     date_from=None,
     date_to=None,
-    marketplaces: list[str] = None,
-    categories: list[str] = None,
+    marketplaces: tuple[str, ...] | None = None,
+    categories: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     query = "SELECT * FROM sales WHERE 1=1"
     params = {}
@@ -32,6 +34,7 @@ def load_data(
         for i, cat in enumerate(categories):
             params[f"cat{i}"] = cat
 
+
     with engine.connect() as conn:
         df = pd.read_sql_query(text(query), conn, params=params)
 
@@ -50,6 +53,7 @@ def load_data(
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_cogs() -> dict[str, float]:
     """Return {wb_numeric_sku: cost_per_unit}.
 
