@@ -51,11 +51,43 @@ def load_data(
 
 
 def load_cogs() -> dict[str, float]:
-    """Return {sku: cost_per_unit} dict."""
+    """Return {wb_sku: cost_per_unit} supporting article, sku, and product_name matching."""
     try:
         with engine.connect() as conn:
-            df = pd.read_sql_query(text("SELECT sku, cost_per_unit FROM cost_of_goods"), conn)
-        return dict(zip(df["sku"], df["cost_per_unit"]))
+            cogs = pd.read_sql_query(
+                text("SELECT sku, product_name, cost_per_unit FROM cost_of_goods"), conn
+            )
+            # Primary map: {stored_key → cost} (stored_key may be article like СГ000006454)
+            result: dict[str, float] = dict(zip(cogs["sku"].astype(str), cogs["cost_per_unit"]))
+
+            # Cross-reference with sales to build {wb_numeric_sku → cost}
+            try:
+                sales = pd.read_sql_query(
+                    text("SELECT DISTINCT sku, article, product_name FROM sales"), conn
+                )
+                # Build name→cost from COGS for product_name fallback
+                name_to_cost = {
+                    str(r["product_name"]).strip(): r["cost_per_unit"]
+                    for _, r in cogs.iterrows()
+                    if str(r["product_name"]).strip()
+                }
+                for _, row in sales.iterrows():
+                    wb_sku = str(row["sku"])
+                    if wb_sku in result:
+                        continue
+                    # 1. Match by article (new code path)
+                    article = str(row.get("article") or "").strip()
+                    if article and article in result:
+                        result[wb_sku] = result[article]
+                        continue
+                    # 2. Match by product_name (fallback for old records without article)
+                    pname = str(row.get("product_name") or "").strip()
+                    if pname and pname in name_to_cost:
+                        result[wb_sku] = name_to_cost[pname]
+            except Exception:
+                pass
+
+            return result
     except Exception:
         return {}
 
