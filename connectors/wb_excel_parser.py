@@ -148,6 +148,12 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
 
         rec = aggregated[key]
 
+        # Update article whenever we find a non-empty value (first row may be a service row)
+        if not rec.get("article"):
+            raw_article = str(row.get(col.get("article", ""), "") or "").strip()
+            if raw_article:
+                rec["article"] = raw_article
+
         revenue     = _safe_float(row.get(col.get("revenue", ""), 0))
         net         = _safe_float(row.get(col.get("net_to_seller", ""), 0))
         commission  = _safe_float(row.get(col.get("commission", ""), 0))

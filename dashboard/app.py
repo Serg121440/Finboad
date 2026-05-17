@@ -188,6 +188,7 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
     src_options = [
         "Отчёт WB (продажи)",        # только sales, реклама и себест. не затронуты
         "Рекламные расходы",          # только ad_spend
+        "Себестоимость (COGS)",       # только cost_of_goods
         "Все продажи и реклама",      # sales + ad_spend
     ]
     clear_target = st.selectbox("Что удалить", src_options, key="clear_target")
@@ -209,6 +210,8 @@ with st.sidebar.expander("🗑 Управление данными", expanded=Fa
                         elif clear_target == "Рекламные расходы":
                             conn.execute(sqlt("DELETE FROM ad_spend"))
                             conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
+                        elif clear_target == "Себестоимость (COGS)":
+                            conn.execute(sqlt("DELETE FROM cost_of_goods"))
                         elif clear_target == "Отчёт WB (продажи)":
                             # Удаляем только продажи; реклама и себестоимость остаются
                             conn.execute(sqlt("DELETE FROM sales"))
