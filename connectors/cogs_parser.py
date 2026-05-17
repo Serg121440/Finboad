@@ -60,7 +60,8 @@ def parse_cogs_excel(file) -> tuple[list[dict], int]:
             # Numeric SKUs come from Excel as float (213456789.0) → normalize to int string
             sku = str(int(float(str(sku_raw).replace(" ", "").replace("\xa0", ""))))
         except (ValueError, TypeError):
-            sku = str(sku_raw).strip()
+            # Non-numeric vendor article (e.g. "сг000005550") → uppercase for consistent matching
+            sku = str(sku_raw).strip().upper()
         if not sku or sku.lower() in ("nan", "none", ""):
             continue
         try:

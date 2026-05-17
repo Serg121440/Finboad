@@ -51,13 +51,39 @@ def load_data(
 
 
 def load_cogs() -> dict[str, float]:
-    """Return {wb_sku: cost_per_unit}. Keys are WB numeric SKUs (Код номенклатуры)."""
+    """Return {wb_numeric_sku: cost_per_unit}.
+
+    COGS keys are vendor articles (e.g. "СГ000005550") stored in uppercase.
+    Cross-references them to WB numeric SKUs via sales.article (also uppercase).
+    """
     try:
         with engine.connect() as conn:
             cogs = pd.read_sql_query(
                 text("SELECT sku, cost_per_unit FROM cost_of_goods"), conn
             )
-            return dict(zip(cogs["sku"].astype(str), cogs["cost_per_unit"]))
+            # Normalize stored keys to uppercase (handles legacy lowercase entries)
+            result: dict[str, float] = {
+                str(r["sku"]).strip().upper(): r["cost_per_unit"]
+                for _, r in cogs.iterrows()
+            }
+
+            # Cross-reference vendor article → WB numeric SKU via sales.article
+            try:
+                sales = pd.read_sql_query(
+                    text("SELECT DISTINCT sku, article FROM sales "
+                         "WHERE article IS NOT NULL AND article != ''"), conn
+                )
+                for _, row in sales.iterrows():
+                    wb_sku = str(row["sku"]).strip()
+                    if wb_sku in result:
+                        continue
+                    article_upper = str(row.get("article") or "").strip().upper()
+                    if article_upper and article_upper in result:
+                        result[wb_sku] = result[article_upper]
+            except Exception:
+                pass
+
+            return result
     except Exception:
         return {}
 

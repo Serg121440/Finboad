@@ -112,7 +112,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "marketplace":    "wb",
                 "date":           sale_date,
                 "sku":            sku,
-                "article":        str(row.get(col.get("article", ""), "") or "").strip(),
+                "article":        str(row.get(col.get("article", ""), "") or "").strip().upper(),
                 "product_name":   str(row.get(col.get("name", ""), "") or ""),
                 "category":       str(row.get(col.get("predmet", ""), "") or ""),
                 # Core financials
@@ -150,7 +150,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
 
         # Update article whenever we find a non-empty value (first row may be a service row)
         if not rec.get("article"):
-            raw_article = str(row.get(col.get("article", ""), "") or "").strip()
+            raw_article = str(row.get(col.get("article", ""), "") or "").strip().upper()
             if raw_article:
                 rec["article"] = raw_article
 
