@@ -53,7 +53,14 @@ def parse_cogs_excel(file) -> tuple[list[dict], int]:
 
     records = []
     for _, row in df.iterrows():
-        sku = str(row.get(col_sku, "")).strip()
+        sku_raw = row.get(col_sku, "")
+        try:
+            if pd.isna(sku_raw):
+                continue
+            # Numeric SKUs come from Excel as float (213456789.0) → normalize to int string
+            sku = str(int(float(str(sku_raw).replace(" ", "").replace("\xa0", ""))))
+        except (ValueError, TypeError):
+            sku = str(sku_raw).strip()
         if not sku or sku.lower() in ("nan", "none", ""):
             continue
         try:
