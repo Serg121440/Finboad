@@ -112,6 +112,7 @@ def parse_wb_excel(file) -> tuple[list[dict], dict]:
                 "marketplace":    "wb",
                 "date":           sale_date,
                 "sku":            sku,
+                "article":        str(row.get(col.get("article", ""), "") or "").strip(),
                 "product_name":   str(row.get(col.get("name", ""), "") or ""),
                 "category":       str(row.get(col.get("predmet", ""), "") or ""),
                 # Core financials

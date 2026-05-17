@@ -15,6 +15,7 @@ class SaleRecord(Base):
     marketplace = Column(String(20), nullable=False)
     date = Column(Date, nullable=False)
     sku = Column(String(100), nullable=False)
+    article = Column(String(200), default="")   # Артикул поставщика
     product_name = Column(String(500))
     category = Column(String(200))
     # Core financials
@@ -100,6 +101,7 @@ def _migrate():
         ("storage",            "DOUBLE PRECISION DEFAULT 0.0"),
         ("cofinancing",    "DOUBLE PRECISION DEFAULT 0.0"),
         ("ad_spend",       "DOUBLE PRECISION DEFAULT 0.0"),
+        ("article",        "TEXT DEFAULT ''"),
     ]
     try:
         with engine.connect() as conn:

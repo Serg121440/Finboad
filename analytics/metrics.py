@@ -95,7 +95,7 @@ def total_ad_spend(df: pd.DataFrame) -> float:
 def total_cogs(df: pd.DataFrame, cogs_map: dict) -> float:
     total = 0.0
     for _, row in df.iterrows():
-        cost = cogs_map.get(str(row["sku"]), 0.0)
+        cost = cogs_map.get(str(row.get("article", "")), cogs_map.get(str(row["sku"]), 0.0))
         total += cost * int(row.get("quantity", 0))
     return total
 
@@ -140,7 +140,7 @@ def margin_by_sku(df: pd.DataFrame, cogs_map: dict = None) -> pd.DataFrame:
 
     grouped["net_revenue"] = grouped["revenue"] - grouped["returns"]
     grouped["cogs_total"] = grouped.apply(
-        lambda r: cogs_map.get(str(r["sku"]), 0.0) * r["quantity"], axis=1
+        lambda r: cogs_map.get(str(r.get("article", "")), cogs_map.get(str(r["sku"]), 0.0)) * r["quantity"], axis=1
     )
     grouped["real_profit"] = grouped["net_profit"] - grouped["cogs_total"] - grouped["ad_spend"]
 
