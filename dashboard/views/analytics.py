@@ -65,7 +65,7 @@ def render():
     cat_df["return_rate_pct"] = (
         cat_df["return_quantity"] / cat_df["quantity"] * 100
     ).where(cat_df["quantity"] > 0, 0).round(1)
-    cat_df = cat_df.sort_values("net_profit", ascending=False)
+    cat_df = cat_df[cat_df["category"] != "Без категории"].sort_values("net_profit", ascending=False)
 
     col_cat1, col_cat2 = st.columns(2)
     with col_cat1:
