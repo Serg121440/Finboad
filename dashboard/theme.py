@@ -349,4 +349,5 @@ def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted"
 
     if trend and len(trend) > 1:
         st.plotly_chart(sparkline(trend, color=accent, height=36),
-                        use_container_width=True, config={"displayModeBar": False})
+                        use_container_width=True, config={"displayModeBar": False},
+                        key=f"spark_{label.replace(' ', '_').replace('(', '').replace(')', '')}")
