@@ -32,10 +32,10 @@ theme_toggle_sidebar()
 # ── Multi-page navigation ─────────────────────────────────────────────────────
 
 pages = [
-    st.Page(overview.render,      title="Обзор",           icon=":material/dashboard:",    default=True),
-    st.Page(analytics.render,     title="Аналитика",       icon=":material/analytics:"),
-    st.Page(upload.render,        title="Загрузка данных", icon=":material/upload_file:"),
-    st.Page(settings_view.render, title="Настройки",       icon=":material/settings:"),
+    st.Page(overview.render,      title="Обзор",           icon=":material/dashboard:",   url_path="overview",   default=True),
+    st.Page(analytics.render,     title="Аналитика",       icon=":material/analytics:",   url_path="analytics"),
+    st.Page(upload.render,        title="Загрузка данных", icon=":material/upload_file:", url_path="upload"),
+    st.Page(settings_view.render, title="Настройки",       icon=":material/settings:",    url_path="settings"),
 ]
 
 nav = st.navigation(pages, position="sidebar")
