@@ -70,78 +70,78 @@ def render():
     trend_ads     = _daily["ad_spend"].tolist()
     trend_qty     = _daily["quantity"].tolist()
 
-    cols = st.columns(7)
-    with cols[0]:
+    # ── KPI row 1: revenue + payout + qty ────────────────────────────────────
+    row1 = st.columns(4)
+    with row1[0]:
         kpi_card("Выручка (брутто)", rub(gross), trend=trend_revenue, accent=WB_ACCENT)
-    with cols[1]:
+    with row1[1]:
         kpi_card("Выручка (нетто)", rub(net), trend=trend_revenue, accent=INFO)
-    with cols[2]:
+    with row1[2]:
         kpi_card("К перечислению МП", rub(profit), delta=pct(margin),
                  delta_color="up" if margin >= 0 else "down",
                  trend=trend_profit, accent=SUCCESS)
-    with cols[3]:
+    with row1[3]:
         ret_color = "down" if total_returns > 0 else "muted"
         kpi_card("Продано / Возвращено", f"{num(total_qty)} шт.",
                  delta=f"возвраты: {num(total_returns)}",
                  delta_color=ret_color, trend=trend_qty, accent=OZON_ACCENT)
-    with cols[4]:
+
+    # ── KPI row 2: ads + cogs + real profit + margin target ──────────────────
+    row2 = st.columns(4)
+    with row2[0]:
         kpi_card("Реклама (ДРР)",
                  rub(ads) if ads > 0 else "не загружена",
                  delta=pct(drr(df)) if ads > 0 else "—",
                  delta_color="down" if ads > 0 else "muted",
                  trend=trend_ads if ads > 0 else None, accent=DANGER)
-    with cols[5]:
+    with row2[1]:
         kpi_card("Себестоимость",
                  rub(cogs) if has_cogs else "не задана",
                  delta="загрузи COGS" if not has_cogs else "",
                  delta_color="muted")
-    with cols[6]:
+    with row2[2]:
         if has_cogs:
             kpi_card("Реальная прибыль", rub(r_profit), delta=pct(r_margin),
                      delta_color="up" if r_margin >= 0 else "down",
                      trend=trend_profit, accent=SUCCESS)
         else:
             kpi_card("Реальная прибыль", "—", delta_color="muted")
+    with row2[3]:
+        # Compact margin target
+        margin_target = st.session_state.get("margin_target_pct", 30.0)
+        margin_target = st.number_input(
+            "Цель по марже, %", min_value=0.0, max_value=100.0,
+            value=float(margin_target), step=1.0, key="margin_target_pct",
+        )
 
     st.divider()
 
-    # ── Margin bullet chart (target = 30% by default) ────────────────────────
-    margin_target = st.session_state.get("margin_target_pct", 30.0)
-
-    bullet_col, target_col = st.columns([3, 1])
-    with target_col:
-        st.markdown("**Цель по марже**")
-        margin_target = st.number_input(
-            "Цель, %", min_value=0.0, max_value=100.0,
-            value=float(margin_target), step=1.0, key="margin_target_pct",
-            label_visibility="collapsed",
-        )
-    with bullet_col:
-        fig_bullet = go.Figure(go.Indicator(
-            mode="number+gauge+delta",
-            value=margin,
-            domain={"x": [0, 1], "y": [0, 1]},
-            delta={"reference": margin_target, "suffix": " п.п."},
-            number={"suffix": "%", "valueformat": ".1f"},
-            title={"text": "Маржа vs цель", "font": {"size": 14}},
-            gauge={
-                "shape": "bullet",
-                "axis": {"range": [0, max(margin_target * 1.5, 50)]},
-                "threshold": {
-                    "line": {"color": SUCCESS, "width": 3},
-                    "thickness": 0.85,
-                    "value": margin_target,
-                },
-                "steps": [
-                    {"range": [0, margin_target * 0.5], "color": "rgba(239,68,68,0.25)"},
-                    {"range": [margin_target * 0.5, margin_target], "color": "rgba(245,158,11,0.25)"},
-                    {"range": [margin_target, margin_target * 1.5], "color": "rgba(16,185,129,0.20)"},
-                ],
-                "bar": {"color": WB_ACCENT, "thickness": 0.5},
+    # ── Margin bullet chart ───────────────────────────────────────────────────
+    fig_bullet = go.Figure(go.Indicator(
+        mode="number+gauge+delta",
+        value=margin,
+        domain={"x": [0, 1], "y": [0, 1]},
+        delta={"reference": margin_target, "suffix": " п.п."},
+        number={"suffix": "%", "valueformat": ".1f"},
+        title={"text": "Маржа vs цель", "font": {"size": 14}},
+        gauge={
+            "shape": "bullet",
+            "axis": {"range": [0, max(margin_target * 1.5, 50)]},
+            "threshold": {
+                "line": {"color": SUCCESS, "width": 3},
+                "thickness": 0.85,
+                "value": margin_target,
             },
-        ))
-        fig_bullet.update_layout(height=120, margin=dict(l=10, r=10, t=30, b=10))
-        st.plotly_chart(apply_plotly_theme(fig_bullet), width="stretch")
+            "steps": [
+                {"range": [0, margin_target * 0.5], "color": "rgba(239,68,68,0.25)"},
+                {"range": [margin_target * 0.5, margin_target], "color": "rgba(245,158,11,0.25)"},
+                {"range": [margin_target, margin_target * 1.5], "color": "rgba(16,185,129,0.20)"},
+            ],
+            "bar": {"color": WB_ACCENT, "thickness": 0.5},
+        },
+    ))
+    fig_bullet.update_layout(height=100, margin=dict(l=10, r=10, t=30, b=5))
+    st.plotly_chart(apply_plotly_theme(fig_bullet), use_container_width=True)
 
     st.divider()
 
