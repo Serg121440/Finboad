@@ -36,7 +36,7 @@ def render():
     df_cat = df.copy()
     df_cat["category"] = df_cat.apply(
         lambda r: r["category"] if str(r.get("category") or "").strip()
-        else MP_LABELS.get(str(r.get("marketplace", "")), str(r.get("marketplace", "Прочее"))),
+        else "Без категории",
         axis=1,
     )
     if has_cogs:

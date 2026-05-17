@@ -100,6 +100,7 @@ def _ozon_sales_card():
                     st.error(f"{f.name}: {e}")
             if total:
                 load_data.clear()
+                load_cogs.clear()
                 st.rerun()
 
 
