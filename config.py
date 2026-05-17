@@ -13,7 +13,21 @@ OZON_CLIENT_ID = os.getenv("OZON_CLIENT_ID", "")
 OZON_API_KEY = os.getenv("OZON_API_KEY", "")
 OZON_BASE_URL = "https://api-seller.ozon.ru"
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///finboard.db")
+_INVALID_PG_PARAMS = {"schema", "pgbouncer", "connect_timeout_ms"}
+
+
+def _clean_db_url(url: str) -> str:
+    """Strip query params unsupported by psycopg2 (e.g. schema=public from Prisma-style URLs)."""
+    if not url or "?" not in url:
+        return url
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    parsed = urlparse(url)
+    qs = {k: v[0] for k, v in parse_qs(parsed.query).items()
+          if k not in _INVALID_PG_PARAMS}
+    return urlunparse(parsed._replace(query=urlencode(qs)))
+
+
+DATABASE_URL = _clean_db_url(os.getenv("DATABASE_URL", "sqlite:///finboard.db"))
 
 SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Europe/Moscow")
 SCHEDULER_HOUR = 6
