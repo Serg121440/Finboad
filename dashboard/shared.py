@@ -81,7 +81,8 @@ def render_filters_and_load() -> ViewContext | None:
         cat_filter = None
 
     df = load_data(date_from=date_from, date_to=date_to,
-                   marketplaces=mp_filter, categories=cat_filter)
+                   marketplaces=tuple(mp_filter) if mp_filter else None,
+                   categories=tuple(cat_filter) if cat_filter else None)
     cogs_map = load_cogs()
 
     return ViewContext(
