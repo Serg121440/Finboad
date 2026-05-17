@@ -289,3 +289,64 @@ def brand_block():
 def status_dot(ok: bool, label: str) -> str:
     cls = "ok" if ok else "err"
     return f'<span class="fb-status"><span class="fb-status-dot {cls}"></span>{label}</span>'
+
+
+def sparkline(values, color=WB_ACCENT, height: int = 40):
+    """Render a tiny sparkline chart suitable for KPI cards."""
+    import plotly.graph_objects as go
+    fig = go.Figure(go.Scatter(
+        y=list(values), mode="lines",
+        line=dict(color=color, width=2, shape="spline"),
+        fill="tozeroy",
+        fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.12)",
+        hoverinfo="skip",
+    ))
+    fig.update_layout(
+        height=height,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(visible=False, fixedrange=True),
+        yaxis=dict(visible=False, fixedrange=True),
+        showlegend=False,
+    )
+    return fig
+
+
+def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted",
+             trend: list | None = None, accent: str = WB_ACCENT):
+    """Render a KPI card with optional sparkline trend.
+
+    delta_color: 'up' (green), 'down' (red), 'muted' (gray)
+    """
+    p = palette()
+    color_map = {"up": SUCCESS, "down": DANGER, "muted": p["muted"]}
+    delta_col = color_map.get(delta_color, p["muted"])
+
+    arrow = ""
+    if delta and delta_color == "up": arrow = "▲ "
+    elif delta and delta_color == "down": arrow = "▼ "
+
+    st.markdown(f"""
+    <div style="
+      background: {p['card']}; border: 1px solid {p['border']};
+      border-radius: 12px; padding: 16px 18px; transition: border-color .2s;
+      min-height: {110 if trend else 90}px;
+    ">
+      <div style="font-size:10px; color:{p['muted']}; font-weight:600;
+                  text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;">
+        {label}
+      </div>
+      <div style="font-size:22px; color:{p['text']}; font-weight:700;
+                  font-variant-numeric: tabular-nums; line-height:1.1;">
+        {value}
+      </div>
+      <div style="font-size:11px; color:{delta_col}; font-weight:600; margin-top:4px;">
+        {arrow}{delta}&nbsp;
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if trend and len(trend) > 1:
+        st.plotly_chart(sparkline(trend, color=accent, height=36),
+                        use_container_width=True, config={"displayModeBar": False})
