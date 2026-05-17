@@ -163,6 +163,34 @@ def upsert_records(records: list[dict]):
                 session.add(SaleRecord(**clean))
                 count += 1
         session.commit()
+
+        # Cross-reference: for each sale with an article, if COGS has that article as key,
+        # add the WB numeric sku as an additional COGS entry so matching works by sku too.
+        try:
+            article_to_sku: dict[str, str] = {}
+            for rec in records:
+                article = str(rec.get("article") or "").strip()
+                sku = str(rec.get("sku") or "").strip()
+                if article and sku and article != sku:
+                    article_to_sku[article] = sku
+
+            if article_to_sku:
+                for article, wb_sku in article_to_sku.items():
+                    cogs_src = session.query(CostOfGoods).filter_by(sku=article).first()
+                    if cogs_src and cogs_src.cost_per_unit > 0:
+                        existing_wb = session.query(CostOfGoods).filter_by(sku=wb_sku).first()
+                        if existing_wb:
+                            existing_wb.cost_per_unit = cogs_src.cost_per_unit
+                        else:
+                            session.add(CostOfGoods(
+                                sku=wb_sku,
+                                product_name=cogs_src.product_name,
+                                cost_per_unit=cogs_src.cost_per_unit,
+                            ))
+                session.commit()
+        except Exception:
+            session.rollback()
+
         return count
     except Exception as e:
         session.rollback()
