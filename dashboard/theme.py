@@ -180,6 +180,24 @@ def inject_css():
         color: {p["text"]} !important;
       }}
 
+      /* Selectbox / multiselect dropdown list */
+      [data-baseweb="popover"],
+      [data-baseweb="popover"] *,
+      [data-baseweb="menu"],
+      [data-baseweb="menu"] ul,
+      [data-baseweb="option"] {{
+        background: {p["card"]} !important;
+        color: {p["text"]} !important;
+      }}
+      [data-baseweb="option"]:hover {{
+        background: {p["hover_bg"]} !important;
+      }}
+      [data-baseweb="select"] span,
+      [data-baseweb="select"] div {{
+        color: {p["text"]} !important;
+        background: {p["card"]} !important;
+      }}
+
       /* File uploader */
       [data-testid="stFileUploader"] section {{
         background: {p["card"]};
