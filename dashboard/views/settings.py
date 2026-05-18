@@ -47,7 +47,10 @@ def render():
 
     src_options = [
         "Отчёт WB (продажи)",
-        "Рекламные расходы",
+        "Отчёт Ozon (продажи)",
+        "Реклама WB",
+        "Реклама Ozon",
+        "Рекламные расходы (все)",
         "Себестоимость (COGS)",
         "Все продажи и реклама",
     ]
@@ -70,10 +73,18 @@ def render():
                     from database.db import engine
                     with engine.connect() as conn:
                         if clear_target == "Отчёт WB (продажи)":
-                            conn.execute(sqlt("DELETE FROM sales"))
-                        elif clear_target == "Рекламные расходы":
+                            conn.execute(sqlt("DELETE FROM sales WHERE marketplace='wb'"))
+                        elif clear_target == "Отчёт Ozon (продажи)":
+                            conn.execute(sqlt("DELETE FROM sales WHERE marketplace='ozon'"))
+                        elif clear_target == "Реклама WB":
+                            conn.execute(sqlt("DELETE FROM ad_spend WHERE marketplace='wb'"))
+                            conn.execute(sqlt("UPDATE sales SET ad_spend=0.0 WHERE marketplace='wb'"))
+                        elif clear_target == "Реклама Ozon":
+                            conn.execute(sqlt("DELETE FROM ad_spend WHERE marketplace='ozon'"))
+                            conn.execute(sqlt("UPDATE sales SET ad_spend=0.0 WHERE marketplace='ozon'"))
+                        elif clear_target == "Рекламные расходы (все)":
                             conn.execute(sqlt("DELETE FROM ad_spend"))
-                            conn.execute(sqlt("UPDATE sales SET ad_spend = 0.0"))
+                            conn.execute(sqlt("UPDATE sales SET ad_spend=0.0"))
                         elif clear_target == "Себестоимость (COGS)":
                             conn.execute(sqlt("DELETE FROM cost_of_goods"))
                         elif clear_target == "Все продажи и реклама":
