@@ -9,16 +9,21 @@ from config import DATABASE_URL
 Base = declarative_base()
 
 _INVALID_PG_PARAMS = {"schema", "pgbouncer", "connect_timeout_ms"}
+_SQLITE_FALLBACK = "sqlite:///finboard.db"
+
+# Set to True when PostgreSQL was configured but unreachable; UI can read this.
+db_fallback_active: bool = False
 
 
 def _build_engine(raw_url: str):
     """Create SQLAlchemy engine.
 
     For PostgreSQL URLs: strips psycopg2-incompatible query params and
-    verifies connectivity (3 s timeout). Falls back to SQLite if the
-    server is unreachable so the app always starts.
+    verifies connectivity (3 s timeout). If the server is unreachable the
+    engine falls back to SQLite and sets db_fallback_active=True so the UI
+    can show a visible warning instead of silently diverging data.
     """
-    _SQLITE_FALLBACK = "sqlite:///finboard.db"
+    global db_fallback_active
     try:
         url = make_url(raw_url)
         dialect = url.get_dialect().name
@@ -36,6 +41,7 @@ def _build_engine(raw_url: str):
             return eng
         return create_engine(url, echo=False)
     except Exception:
+        db_fallback_active = True
         return create_engine(_SQLITE_FALLBACK, echo=False)
 
 _MSK = timezone(timedelta(hours=3))

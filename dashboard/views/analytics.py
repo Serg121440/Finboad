@@ -69,29 +69,35 @@ def render():
     cat_df_chart = cat_df[cat_df["category"] != "Без категории"]
 
     col_cat1, col_cat2 = st.columns(2)
-    with col_cat1:
-        fig_cat_rev = px.bar(
-            cat_df_chart, x="net_profit", y="category", orientation="h",
-            color="margin_pct", color_continuous_scale="RdYlGn",
-            labels={"net_profit": "К перечислению, ₽", "category": "",
-                    "margin_pct": "Маржа, %"},
-            title="К перечислению по категориям",
-            text=cat_df["net_profit"].apply(lambda v: rub(v)),
-        )
-        fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=420)
-        fig_cat_rev.update_traces(textposition="outside")
-        st.plotly_chart(apply_plotly_theme(fig_cat_rev), width="stretch")
-    with col_cat2:
-        fig_cat_mg = px.bar(
-            cat_df_chart, x="margin_pct", y="category", orientation="h",
-            color="margin_pct", color_continuous_scale="RdYlGn",
-            labels={"margin_pct": "Маржа, %", "category": ""},
-            title="Маржинальность по категориям",
-            text=cat_df_chart["margin_pct"].apply(lambda v: pct(v)),
-        )
-        fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=420)
-        fig_cat_mg.update_traces(textposition="outside")
-        st.plotly_chart(apply_plotly_theme(fig_cat_mg), width="stretch")
+    if cat_df_chart.empty:
+        with col_cat1:
+            st.info("Нет категорий для отображения на графике.")
+        with col_cat2:
+            st.info("Нет категорий для отображения на графике.")
+    else:
+        with col_cat1:
+            fig_cat_rev = px.bar(
+                cat_df_chart, x="net_profit", y="category", orientation="h",
+                color="margin_pct", color_continuous_scale="RdYlGn",
+                labels={"net_profit": "К перечислению, ₽", "category": "",
+                        "margin_pct": "Маржа, %"},
+                title="К перечислению по категориям",
+                text=cat_df_chart["net_profit"].apply(lambda v: rub(v)),
+            )
+            fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=420)
+            fig_cat_rev.update_traces(textposition="outside")
+            st.plotly_chart(apply_plotly_theme(fig_cat_rev), width="stretch")
+        with col_cat2:
+            fig_cat_mg = px.bar(
+                cat_df_chart, x="margin_pct", y="category", orientation="h",
+                color="margin_pct", color_continuous_scale="RdYlGn",
+                labels={"margin_pct": "Маржа, %", "category": ""},
+                title="Маржинальность по категориям",
+                text=cat_df_chart["margin_pct"].apply(lambda v: pct(v)),
+            )
+            fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=420)
+            fig_cat_mg.update_traces(textposition="outside")
+            st.plotly_chart(apply_plotly_theme(fig_cat_mg), width="stretch")
 
     cat_show = cat_df.copy()
     rename_map = {
