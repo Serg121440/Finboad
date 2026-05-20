@@ -76,7 +76,7 @@ def render():
             labels={"net_profit": "К перечислению, ₽", "category": "",
                     "margin_pct": "Маржа, %"},
             title="К перечислению по категориям",
-            text=cat_df["net_profit"].apply(lambda v: rub(v)),
+            text=cat_df_chart["net_profit"].apply(lambda v: rub(v)),
         )
         fig_cat_rev.update_layout(yaxis=dict(autorange="reversed"), height=420)
         fig_cat_rev.update_traces(textposition="outside")
