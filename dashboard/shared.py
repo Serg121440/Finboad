@@ -62,11 +62,14 @@ def render_filters_and_load() -> ViewContext | None:
                                     key="flt_to")
 
     avail_mp = sorted(all_data["marketplace"].unique())
+    valid_mp_labels = {"Все"} | {MP_LABELS.get(m, m) for m in avail_mp}
     mp_sel = st.sidebar.multiselect(
         "Маркетплейс",
         ["Все"] + [MP_LABELS.get(m, m) for m in avail_mp],
         default=["Все"], key="flt_mp",
     )
+    # Drop stale/invalid values that don't match current options
+    mp_sel = [m for m in mp_sel if m in valid_mp_labels] or ["Все"]
     mp_filter = None if "Все" in mp_sel or not mp_sel else [
         {v: k for k, v in MP_LABELS.items()}.get(m, m) for m in mp_sel
     ]

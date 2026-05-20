@@ -171,6 +171,15 @@ def inject_css():
       .stButton > button[kind="primary"] {{
         background: {WB_ACCENT}; border-color: {WB_ACCENT}; color: white;
       }}
+      /* Theme toggle — keep emoji visible */
+      button[data-testid="baseButton-secondary"][key="theme_toggle"],
+      .stButton > button:has(> div > p:only-child) {{
+        background: transparent !important;
+        border-color: {p["border"]} !important;
+        font-size: 18px !important;
+        line-height: 1 !important;
+        padding: 4px 8px !important;
+      }}
 
       /* Inputs */
       .stTextInput input, .stNumberInput input, .stDateInput input,
