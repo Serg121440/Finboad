@@ -12,16 +12,31 @@ _INVALID_PG_PARAMS = {"schema", "pgbouncer", "connect_timeout_ms"}
 
 
 def _build_engine(raw_url: str):
-    """Create SQLAlchemy engine, stripping psycopg2-incompatible URL params."""
+    """Create SQLAlchemy engine.
+
+    For PostgreSQL URLs: strips psycopg2-incompatible query params and
+    verifies connectivity (3 s timeout). Falls back to SQLite if the
+    server is unreachable so the app always starts.
+    """
+    _SQLITE_FALLBACK = "sqlite:///finboard.db"
     try:
         url = make_url(raw_url)
-        if url.get_dialect().name in ("postgresql", "postgres") and url.query:
-            clean_query = {k: v for k, v in url.query.items()
-                           if k not in _INVALID_PG_PARAMS}
-            url = url.set(query=clean_query)
+        dialect = url.get_dialect().name
+        if dialect in ("postgresql", "postgres"):
+            if url.query:
+                clean_query = {k: v for k, v in url.query.items()
+                               if k not in _INVALID_PG_PARAMS}
+                url = url.set(query=clean_query)
+            eng = create_engine(
+                url, echo=False, pool_pre_ping=True,
+                connect_args={"connect_timeout": 3},
+            )
+            with eng.connect():   # raises immediately if host is unreachable
+                pass
+            return eng
         return create_engine(url, echo=False)
     except Exception:
-        return create_engine(raw_url, echo=False)
+        return create_engine(_SQLITE_FALLBACK, echo=False)
 
 _MSK = timezone(timedelta(hours=3))
 
