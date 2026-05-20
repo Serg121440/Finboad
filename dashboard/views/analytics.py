@@ -65,12 +65,13 @@ def render():
     cat_df["return_rate_pct"] = (
         cat_df["return_quantity"] / cat_df["quantity"] * 100
     ).where(cat_df["quantity"] > 0, 0).round(1)
-    cat_df = cat_df[cat_df["category"] != "Без категории"].sort_values("net_profit", ascending=False)
+    cat_df = cat_df.sort_values("net_profit", ascending=False)
+    cat_df_chart = cat_df[cat_df["category"] != "Без категории"]
 
     col_cat1, col_cat2 = st.columns(2)
     with col_cat1:
         fig_cat_rev = px.bar(
-            cat_df, x="net_profit", y="category", orientation="h",
+            cat_df_chart, x="net_profit", y="category", orientation="h",
             color="margin_pct", color_continuous_scale="RdYlGn",
             labels={"net_profit": "К перечислению, ₽", "category": "",
                     "margin_pct": "Маржа, %"},
@@ -82,11 +83,11 @@ def render():
         st.plotly_chart(apply_plotly_theme(fig_cat_rev), width="stretch")
     with col_cat2:
         fig_cat_mg = px.bar(
-            cat_df, x="margin_pct", y="category", orientation="h",
+            cat_df_chart, x="margin_pct", y="category", orientation="h",
             color="margin_pct", color_continuous_scale="RdYlGn",
             labels={"margin_pct": "Маржа, %", "category": ""},
             title="Маржинальность по категориям",
-            text=cat_df["margin_pct"].apply(lambda v: pct(v)),
+            text=cat_df_chart["margin_pct"].apply(lambda v: pct(v)),
         )
         fig_cat_mg.update_layout(yaxis=dict(autorange="reversed"), height=420)
         fig_cat_mg.update_traces(textposition="outside")

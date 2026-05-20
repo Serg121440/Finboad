@@ -166,12 +166,14 @@ def _wb_ads_card():
         files = st.file_uploader("xlsx-файлы", type=["xlsx"],
                                  accept_multiple_files=True, key="wb_ads",
                                  label_visibility="collapsed")
-        method = st.radio("Распределение",
-                          ["Пропорционально выручке", "Без привязки к SKU"],
-                          key="ads_method", horizontal=False)
         _status_line("wb_ads")
+        if files:
+            method = st.radio("Распределение",
+                              ["Пропорционально выручке", "Без привязки к SKU"],
+                              key="ads_method", horizontal=False)
         if files and st.button("Загрузить", key="btn_wb_ads", type="primary",
                                use_container_width=True):
+            method = st.session_state.get("ads_method", "Пропорционально выручке")
             from connectors.wb_ads_parser import (
                 parse_wb_ads_excel, distribute_ad_spend_by_revenue,
             )
@@ -206,12 +208,14 @@ def _ozon_ads_card():
         files = st.file_uploader("xlsx-файлы", type=["xlsx"],
                                  accept_multiple_files=True, key="ozon_ads",
                                  label_visibility="collapsed")
-        ds = st.date_input("Дата начала периода",
-                           value=date.today().replace(day=1),
-                           key="ozon_ads_date")
         _status_line("ozon_ads")
+        if files:
+            ds = st.date_input("Дата начала периода",
+                               value=date.today().replace(day=1),
+                               key="ozon_ads_date")
         if files and st.button("Загрузить", key="btn_ozon_ads", type="primary",
                                use_container_width=True):
+            ds = st.session_state.get("ozon_ads_date", date.today().replace(day=1))
             from connectors.ozon_ads_parser import parse_ozon_ads_excel
             from database.db import insert_ad_spend, log_sync
             total = 0
