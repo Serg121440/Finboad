@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import streamlit as st
 
+import database.db as _db
 from database.db import init_db
 from dashboard.theme import inject_css, brand_block, theme_toggle_sidebar
 from dashboard.views import overview, analytics, upload, settings as settings_view
@@ -24,6 +25,14 @@ st.set_page_config(
 
 init_db()
 inject_css()
+
+if _db.db_fallback_active:
+    st.warning(
+        "⚠️ **PostgreSQL недоступен.** Приложение работает с локальным SQLite "
+        "(`finboard.db`). Данные не попадут в основную базу. "
+        "Проверь `DATABASE_URL` и перезапусти сервер.",
+        icon="🔴",
+    )
 
 with st.sidebar:
     brand_block()

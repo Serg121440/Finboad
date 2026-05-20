@@ -44,15 +44,6 @@ def render_filters_and_load() -> ViewContext | None:
 
     Returns None if there is no data yet (caller should show an empty state).
     """
-    from database.db import db_fallback_active
-    if db_fallback_active:
-        st.warning(
-            "⚠️ **PostgreSQL недоступен.** Приложение работает с локальным SQLite "
-            "(`finboard.db`). Данные не попадут в основную базу. "
-            "Проверь `DATABASE_URL` и перезапусти сервер.",
-            icon="🔴",
-        )
-
     all_data = load_data()
     if all_data.empty:
         return None
