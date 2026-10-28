@@ -78,6 +78,7 @@ class Product(Base):
     name = Column(String(500), default="")
     category = Column(String(200), default="")
     vat10 = Column(Boolean, default=False)         # товар облагается НДС 10 %
+    card_cost = Column(Float)                      # себестоимость из карточки маркетплейса (Ozon net_price)
 
     __table_args__ = (UniqueConstraint("cabinet_id", "sku"),)
 

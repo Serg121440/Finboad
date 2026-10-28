@@ -103,7 +103,15 @@ def sync_ozon(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams)
     if "products" in streams:
         run = Run(cab.id, "products", date_from, date_to)
         try:
-            n = store.upsert_products(cab.id, seller.products())
+            products = seller.products()
+            try:
+                costs = seller.net_prices()
+            except Exception:
+                log.exception("net_price for cabinet %s", cab.id)
+                costs = {}
+            for p in products:
+                p["card_cost"] = costs.get(p["offer_id"], 0.0)
+            n = store.upsert_products(cab.id, products)
             run.done(n)
             result["products"] = n
         except Exception as e:
