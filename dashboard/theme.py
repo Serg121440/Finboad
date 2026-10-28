@@ -1,35 +1,20 @@
 """Finboard design system — colors, CSS, custom components.
 
 Light and dark themes are Streamlit's own (.streamlit/config.toml): the app follows
-the device and the user switches in ⋮ → Settings. Custom CSS reads the active theme
-from st.context.theme so cards and tables always match.
+the device and the user switches in the ⋮ menu.
 """
 
 import streamlit as st
 
-# ── Palettes ──────────────────────────────────────────────────────────────────
-
-DARK = {
-    "bg":         "#0B0E14",
-    "card":       "#151A26",
-    "sidebar":    "#0D111C",
-    "border":     "#1E2435",
-    "text":       "#E6EDF3",
-    "muted":      "#8B949E",
-    "hover_bg":   "rgba(139,92,246,0.08)",
-    "accent_bg":  "rgba(139,92,246,0.15)",
-}
-
-LIGHT = {
-    "bg":         "#F8FAFC",
-    "card":       "#FFFFFF",
-    "sidebar":    "#F1F4F9",
-    "border":     "#E2E8F0",
-    "text":       "#0F172A",
-    "muted":      "#64748B",
-    "hover_bg":   "rgba(139,92,246,0.06)",
-    "accent_bg":  "rgba(139,92,246,0.12)",
-}
+# Page, sidebar, text, inputs and menus come from Streamlit's own light/dark theme
+# (.streamlit/config.toml). Our CSS never names a background or text colour: cards and
+# borders are tints of the current text colour, so they follow a theme switch in the
+# ⋮ menu instantly, without a rerun.
+CARD = "color-mix(in srgb, currentColor 4%, transparent)"
+BORDER = "color-mix(in srgb, currentColor 14%, transparent)"
+MUTED = "color-mix(in srgb, currentColor 62%, transparent)"
+HOVER = "rgba(139,92,246,0.08)"
+ACCENT_BG = "rgba(139,92,246,0.14)"
 
 # Brand accents (одинаковы в обеих темах)
 WB_ACCENT   = "#8B5CF6"
@@ -43,38 +28,20 @@ MP_LABELS = {"wb": "Wildberries", "ozon": "Ozon", "other": "Прочие"}
 
 PLOTLY_PALETTE = [WB_ACCENT, OZON_ACCENT, SUCCESS, INFO, DANGER, "#EC4899", "#14B8A6", "#A855F7"]
 
-def current_mode() -> str:
-    """Active Streamlit theme: follows the device, switchable in ⋮ → Settings."""
-    try:
-        t = st.context.theme.type
-    except Exception:
-        t = None
-    return "dark" if t == "dark" else "light"
-
-
-def palette() -> dict:
-    return DARK if current_mode() == "dark" else LIGHT
-
-
 def theme_toggle_sidebar():
-    """Theme hint: Streamlit's own light/dark switch recolours tables too."""
-    label = "🌙 тёмная" if current_mode() == "dark" else "☀ светлая"
     with st.sidebar:
-        st.caption(f"Тема: {label}. Следует за устройством (день/ночь); переключить — "
-                   "меню ⋮ справа сверху → Settings → Light / Dark.")
+        st.caption("Тема следует за устройством (день/ночь); переключить — меню ⋮ справа сверху → "
+                   "Light / Dark / System.")
 
 
 def plotly_layout() -> dict:
-    p = palette()
+    grid = "rgba(148,163,184,0.25)"
     return dict(
-        paper_bgcolor=p["card"],
-        plot_bgcolor=p["card"],
-        font=dict(family="Inter, -apple-system, sans-serif", color=p["text"], size=12),
-        xaxis=dict(gridcolor=p["border"], zerolinecolor=p["border"], linecolor=p["border"],
-                   tickfont=dict(color=p["muted"])),
-        yaxis=dict(gridcolor=p["border"], zerolinecolor=p["border"], linecolor=p["border"],
-                   tickfont=dict(color=p["muted"])),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=p["text"])),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, -apple-system, sans-serif", color="#94A3B8", size=12),
+        xaxis=dict(gridcolor=grid, zerolinecolor=grid, linecolor=grid),
+        yaxis=dict(gridcolor=grid, zerolinecolor=grid, linecolor=grid),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=40, b=10),
     )
 
@@ -86,196 +53,90 @@ def apply_plotly_theme(fig):
 
 
 def inject_css():
-    """Inject global CSS into the Streamlit app (mode-aware)."""
-    p = palette()
-    is_dark = current_mode() == "dark"
-
+    """Global CSS; colours that differ between themes are left to Streamlit."""
     st.html(f"""
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       html, body, [class*="css"], .stApp {{
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
       }}
-      .stApp {{ background: {p["bg"]} !important; color: {p["text"]} !important; }}
-
-      /* Sidebar */
-      section[data-testid="stSidebar"] {{
-        background: {p["sidebar"]} !important;
-        border-right: 1px solid {p["border"]};
-      }}
-      section[data-testid="stSidebar"] * {{ color: {p["text"]}; }}
 
       /* Headings */
-      h1, h2, h3, h4 {{ color: {p["text"]} !important; letter-spacing: -0.01em; font-weight: 700 !important; }}
+      h1, h2, h3, h4 {{ letter-spacing: -0.01em; font-weight: 700 !important; }}
       h1 {{ font-size: 28px !important; }}
       h2 {{ font-size: 20px !important; }}
-      h3 {{ font-size: 16px !important; color: {p["muted"]} !important; font-weight: 600 !important; }}
-
-      p, div, span, label {{ color: {p["text"]}; }}
+      h3 {{ font-size: 16px !important; color: {MUTED} !important; font-weight: 600 !important; }}
 
       /* Metric cards */
       div[data-testid="stMetric"] {{
-        background: {p["card"]};
-        border: 1px solid {p["border"]};
-        border-radius: 12px;
-        padding: 16px 18px;
+        background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
         transition: border-color 0.2s;
       }}
       div[data-testid="stMetric"]:hover {{ border-color: {WB_ACCENT}; }}
       div[data-testid="stMetricLabel"] p {{
-        color: {p["muted"]} !important;
-        font-size: 10px !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
+        color: {MUTED} !important; font-size: 10px !important; font-weight: 600 !important;
+        text-transform: uppercase; letter-spacing: 0.6px;
       }}
       div[data-testid="stMetricValue"] {{
-        color: {p["text"]} !important;
-        font-size: 22px !important;
-        font-weight: 700 !important;
-        font-variant-numeric: tabular-nums;
+        font-size: 22px !important; font-weight: 700 !important; font-variant-numeric: tabular-nums;
       }}
-      div[data-testid="stMetricDelta"] {{ font-weight: 600 !important; }}
 
       /* Buttons */
-      .stButton > button, .stDownloadButton > button {{
-        background: {p["card"]};
-        color: {p["text"]};
-        border: 1px solid {p["border"]};
-        border-radius: 8px;
-        font-weight: 500;
-        transition: all 0.2s;
-      }}
-      .stButton > button:hover, .stDownloadButton > button:hover {{
-        border-color: {WB_ACCENT};
-        background: {p["hover_bg"]};
-      }}
-      .stButton > button[kind="primary"] {{
-        background: {WB_ACCENT}; border-color: {WB_ACCENT}; color: white;
-      }}
-      /* Theme toggle — keep emoji visible */
-      button[data-testid="baseButton-secondary"][key="theme_toggle"],
-      .stButton > button:has(> div > p:only-child) {{
-        background: transparent !important;
-        border-color: {p["border"]} !important;
-        font-size: 18px !important;
-        line-height: 1 !important;
-        padding: 4px 8px !important;
-      }}
+      .stButton > button, .stDownloadButton > button {{ border-radius: 8px; font-weight: 500; }}
+      .stButton > button:hover, .stDownloadButton > button:hover {{ border-color: {WB_ACCENT}; }}
 
-      /* Inputs */
-      .stTextInput input, .stNumberInput input, .stDateInput input,
-      .stSelectbox > div > div, .stMultiSelect > div > div {{
-        background: {p["card"]} !important;
-        border: 1px solid {p["border"]} !important;
-        color: {p["text"]} !important;
-      }}
-
-      /* Selectbox / multiselect dropdown list */
-      [data-baseweb="popover"],
-      [data-baseweb="popover"] *,
-      [data-baseweb="menu"],
-      [data-baseweb="menu"] ul,
-      [data-baseweb="option"] {{
-        background: {p["card"]} !important;
-        color: {p["text"]} !important;
-      }}
-      [data-baseweb="option"]:hover {{
-        background: {p["hover_bg"]} !important;
-      }}
-      [data-baseweb="select"] span,
-      [data-baseweb="select"] div {{
-        color: {p["text"]} !important;
-        background: {p["card"]} !important;
-      }}
-
-      /* File uploader */
-      [data-testid="stFileUploader"] section {{
-        background: {p["card"]};
-        border: 1px dashed {p["border"]};
-        border-radius: 10px;
-      }}
-      [data-testid="stFileUploader"] section * {{ color: {p["text"]}; }}
-
-      /* Expanders */
-      details[data-testid="stExpander"] {{
-        background: {p["card"]};
-        border: 1px solid {p["border"]} !important;
-        border-radius: 10px !important;
-      }}
-      details[data-testid="stExpander"] summary {{ color: {p["text"]} !important; }}
+      /* Expanders, uploader, tables */
+      details[data-testid="stExpander"] {{ border-radius: 10px !important; }}
+      [data-testid="stFileUploader"] section {{ border: 1px dashed {BORDER}; border-radius: 10px; }}
+      .stDataFrame, [data-testid="stTable"] {{ border-radius: 10px; }}
 
       /* Tabs */
       .stTabs [data-baseweb="tab-list"] {{
-        gap: 4px;
-        background: {p["card"]};
-        border-radius: 10px;
-        padding: 4px;
-        border: 1px solid {p["border"]};
+        gap: 4px; background: {CARD}; border-radius: 10px; padding: 4px; border: 1px solid {BORDER};
       }}
       .stTabs [data-baseweb="tab"] {{
-        background: transparent;
-        color: {p["muted"]};
-        border-radius: 8px;
-        padding: 8px 16px;
-        font-weight: 500;
+        background: transparent; color: {MUTED}; border-radius: 8px; padding: 8px 16px; font-weight: 500;
       }}
-      .stTabs [aria-selected="true"] {{
-        background: {p["accent_bg"]} !important;
-        color: {WB_ACCENT} !important;
-      }}
+      .stTabs [aria-selected="true"] {{ background: {ACCENT_BG} !important; color: {WB_ACCENT} !important; }}
 
-      /* Tables */
-      .stDataFrame, [data-testid="stTable"] {{
-        background: {p["card"]};
-        border: 1px solid {p["border"]};
-        border-radius: 10px;
-      }}
-
-      /* Dividers */
-      hr {{ border-color: {p["border"]} !important; opacity: 0.6; }}
-
-      /* Plotly chart container */
-      .js-plotly-plot, .plotly {{
-        background: {p["card"]} !important;
-        border-radius: 12px;
-        border: 1px solid {p["border"]};
-      }}
-
-      /* App padding */
+      hr {{ border-color: {BORDER} !important; }}
       .block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1400px; }}
-
-      /* Captions */
-      .stCaption, small, [data-testid="stCaptionContainer"] {{ color: {p["muted"]} !important; }}
 
       /* Finboard brand */
       .fb-brand {{
         display: flex; align-items: center; gap: 10px;
-        padding: 8px 4px 16px 4px;
-        border-bottom: 1px solid {p["border"]};
-        margin-bottom: 12px;
+        padding: 8px 4px 16px 4px; border-bottom: 1px solid {BORDER}; margin-bottom: 12px;
       }}
       .fb-brand-dot {{
-        width: 16px; height: 16px;
+        width: 16px; height: 16px; border-radius: 4px;
         background: linear-gradient(135deg, {WB_ACCENT}, {INFO});
-        border-radius: 4px;
       }}
-      .fb-brand-name {{
-        font-weight: 800; letter-spacing: 2px; font-size: 14px;
-        color: {p["text"]};
-      }}
+      .fb-brand-name {{ font-weight: 800; letter-spacing: 2px; font-size: 14px; }}
 
-      /* Pills / tags */
+      /* KPI cards */
+      .fb-kpi {{
+        background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
+        min-height: 90px; transition: border-color .2s;
+      }}
+      .fb-kpi:hover {{ border-color: {WB_ACCENT}; }}
+      .fb-kpi-label {{
+        font-size: 10px; color: {MUTED}; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.6px; margin-bottom: 8px;
+      }}
+      .fb-kpi-value {{ font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }}
+      .fb-kpi-delta {{ font-size: 11px; font-weight: 600; margin-top: 4px; color: {MUTED}; }}
+      .fb-kpi-delta.up {{ color: {SUCCESS}; }}
+      .fb-kpi-delta.down {{ color: {DANGER}; }}
+
+      /* Pills / status */
       .fb-pill {{
         display: inline-block; padding: 4px 10px; border-radius: 12px;
         font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
-        background: rgba(139,92,246,0.12); color: {WB_ACCENT};
-        border: 1px solid rgba(139,92,246,0.25);
+        background: rgba(139,92,246,0.12); color: {WB_ACCENT}; border: 1px solid rgba(139,92,246,0.25);
       }}
       .fb-pill-ozon {{ background: rgba(245,158,11,0.12); color: {OZON_ACCENT}; border-color: rgba(245,158,11,0.25); }}
       .fb-pill-ok   {{ background: rgba(16,185,129,0.12); color: {SUCCESS};     border-color: rgba(16,185,129,0.25); }}
       .fb-pill-err  {{ background: rgba(239,68,68,0.12);  color: {DANGER};      border-color: rgba(239,68,68,0.25); }}
-
       .fb-status {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }}
       .fb-status-dot {{ width: 8px; height: 8px; border-radius: 50%; }}
       .fb-status-dot.ok  {{ background: {SUCCESS}; box-shadow: 0 0 8px {SUCCESS}; }}
@@ -324,35 +185,13 @@ def sparkline(values, color=WB_ACCENT, height: int = 40):
 
 def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted",
              trend: list | None = None, accent: str = WB_ACCENT):
-    """Render a KPI card with optional sparkline trend.
-
-    delta_color: 'up' (green), 'down' (red), 'muted' (gray)
-    """
-    p = palette()
-    color_map = {"up": SUCCESS, "down": DANGER, "muted": p["muted"]}
-    delta_col = color_map.get(delta_color, p["muted"])
-
-    arrow = ""
-    if delta and delta_color == "up": arrow = "▲ "
-    elif delta and delta_color == "down": arrow = "▼ "
-
+    """KPI card with optional sparkline trend. delta_color: 'up' (green), 'down' (red), 'muted'."""
+    arrow = {"up": "▲ ", "down": "▼ "}.get(delta_color, "") if delta else ""
     st.markdown(f"""
-    <div style="
-      background: {p['card']}; border: 1px solid {p['border']};
-      border-radius: 12px; padding: 16px 18px; transition: border-color .2s;
-      min-height: {110 if trend else 90}px;
-    ">
-      <div style="font-size:10px; color:{p['muted']}; font-weight:600;
-                  text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;">
-        {label}
-      </div>
-      <div style="font-size:22px; color:{p['text']}; font-weight:700;
-                  font-variant-numeric: tabular-nums; line-height:1.1;">
-        {value}
-      </div>
-      <div style="font-size:11px; color:{delta_col}; font-weight:600; margin-top:4px;">
-        {arrow}{delta}&nbsp;
-      </div>
+    <div class="fb-kpi">
+      <div class="fb-kpi-label">{label}</div>
+      <div class="fb-kpi-value">{value}</div>
+      <div class="fb-kpi-delta {delta_color}">{arrow}{delta}&nbsp;</div>
     </div>
     """, unsafe_allow_html=True)
 
