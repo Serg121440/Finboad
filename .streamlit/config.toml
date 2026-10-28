@@ -7,10 +7,35 @@ fileWatcherType = "none"
 [browser]
 gatherUsageStats = false
 
+# Light and dark themes: the app follows the device (day/night) and the user can
+# switch in ⋮ → Settings. Tables and editors are recoloured together with the page.
 [theme]
-base = "dark"
+primaryColor = "#8B5CF6"
+font = "sans serif"
+baseRadius = "medium"
+
+[theme.light]
+primaryColor = "#8B5CF6"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#F1F4F9"
+textColor = "#0F172A"
+borderColor = "#E2E8F0"
+dataframeHeaderBackgroundColor = "#EEF2F7"
+
+[theme.light.sidebar]
+backgroundColor = "#F1F4F9"
+secondaryBackgroundColor = "#E7ECF3"
+textColor = "#0F172A"
+
+[theme.dark]
 primaryColor = "#8B5CF6"
 backgroundColor = "#0B0E14"
 secondaryBackgroundColor = "#151A26"
 textColor = "#E6EDF3"
-font = "sans serif"
+borderColor = "#1E2435"
+dataframeHeaderBackgroundColor = "#1A2030"
+
+[theme.dark.sidebar]
+backgroundColor = "#0D111C"
+secondaryBackgroundColor = "#151A26"
+textColor = "#E6EDF3"

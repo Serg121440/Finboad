@@ -74,6 +74,8 @@ def upsert_products(cabinet_id: int, products: list[dict]) -> int:
             obj.article = p.get("offer_id") or obj.article or ""
             obj.name = p.get("name") or obj.name or ""
             obj.category = p.get("category") or obj.category or ""
+            if p.get("card_cost") is not None:
+                obj.card_cost = p["card_cost"] or None
     return len(products)
 
 

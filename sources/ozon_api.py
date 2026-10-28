@@ -92,6 +92,20 @@ class SellerClient:
                                 "category": str(it.get("description_category_id") or "")})
         return out
 
+    def net_prices(self) -> dict[str, float]:
+        """offer_id -> себестоимость из карточки (price.net_price), только заполненные."""
+        out, cursor = {}, ""
+        while True:
+            j = self.post("/v5/product/info/prices", {"filter": {"visibility": "ALL"},
+                                                     "cursor": cursor, "limit": 1000})
+            for it in j.get("items") or []:
+                v = float((it.get("price") or {}).get("net_price") or 0)
+                if v > 0:
+                    out[str(it.get("offer_id"))] = v
+            cursor = j.get("cursor") or ""
+            if not cursor or not j.get("items"):
+                return out
+
     # ── orders ───────────────────────────────────────────────────────────────
 
     def postings(self, date_from: date, date_to: date) -> list[dict]:

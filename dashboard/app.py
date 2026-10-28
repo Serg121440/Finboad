@@ -13,7 +13,7 @@ import streamlit as st
 
 from core.db import DatabaseUnavailable, init_db, is_sqlite
 from core import config
-from dashboard.common import require_access
+from dashboard.common import logout, remember_login, require_access
 from dashboard.theme import brand_block, inject_css, theme_toggle_sidebar
 from dashboard.views import (
     access as access_view, ads, cabinets, cogs, fixed, pnl_months, products, summary, tools, uploads,
@@ -47,6 +47,7 @@ except DatabaseUnavailable as e:
 inject_css()
 acc = require_access()
 st.session_state["access"] = acc
+remember_login()
 
 with st.sidebar:
     brand_block()
@@ -54,6 +55,10 @@ with st.sidebar:
         st.caption("⚠️ Локальная база SQLite (DATABASE_URL не задан)")
     if not acc.owner:
         st.caption(f"Просмотр по ссылке{': ' + acc.label if acc.label else ''}")
+    elif config.OWNER_PASSWORD and st.button("Выйти", key="logout"):
+        logout()
+        st.info("Вы вышли. Обновите страницу, чтобы войти снова.")
+        st.stop()
 theme_toggle_sidebar()
 
 pages = {

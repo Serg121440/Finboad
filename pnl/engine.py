@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from pnl.categories import CATEGORIES, line_of
+from pnl.wb import normalize_article
 from pnl.tax import MonthInput, compute_entity_year
 
 MONEY_LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services",
@@ -156,6 +157,9 @@ def cogs_lines(d: Data, sales: pd.DataFrame) -> pd.DataFrame:
     sales["cost"] = np.nan
     if not d.cogs.empty and not sales.empty:
         cg = d.cogs.copy()
+        # «00000002479» in one source and «2479» in another are the same article
+        sales["article"] = sales["article"].map(normalize_article)
+        cg["article"] = cg["article"].map(normalize_article)
         cg["valid_from"] = pd.to_datetime(cg["valid_from"])
         sales["_dt"] = pd.to_datetime(sales["date"])
         sales["_i"] = sales.index

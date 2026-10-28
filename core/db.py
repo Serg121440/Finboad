@@ -48,8 +48,24 @@ def init_db():
     import core.models  # noqa: F401  (registers tables)
     try:
         Base.metadata.create_all(engine)
+        _add_missing_columns()
     except Exception as e:  # pragma: no cover - depends on infrastructure
         raise DatabaseUnavailable(str(e)) from e
+
+
+def _add_missing_columns():
+    """create_all() doesn't alter existing tables: add columns introduced later."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have:
+                    ddl = col.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
 
 
 @contextmanager
