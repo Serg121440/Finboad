@@ -21,6 +21,9 @@ CATEGORIES = {
     "compensation":     ("other",       "Компенсации"),
     "loyalty":          ("other",       "Программы лояльности"),
     "other":            ("other",       "Прочие начисления"),
+    # WB ad payments deducted from the payout duplicate the ad cabinet numbers,
+    # so they are kept for reconciliation but excluded from the P&L.
+    "ads_wb_deduction": ("excluded",    "Реклама, удержанная из выплаты (дубль кабинета продвижения)"),
 }
 
 # P&L lines in display order. Revenue is positive, the rest are expenses (negative).

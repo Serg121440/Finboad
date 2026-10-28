@@ -136,12 +136,26 @@ class AdSpend(Base):
     campaign_type = Column(String(50), default="")
     sku = Column(String(50))
     amount = Column(Float, default=0.0)            # положительное число — расход
+    # spend: real money not present in the marketplace report (WB ad cabinet);
+    # alloc_cpc / alloc_cpo: Ozon ad statistics used only as weights to split the
+    # ad money from the accrual report between SKUs.
+    kind = Column(String(20), default="spend")
     source_key = Column(String(160), nullable=False)
 
     __table_args__ = (
         UniqueConstraint("cabinet_id", "source_key"),
         Index("ix_fb_ad_cab_date", "cabinet_id", "date"),
     )
+
+
+class AdCampaign(Base):
+    __tablename__ = "fb_ad_campaign"
+
+    cabinet_id = Column(Integer, ForeignKey("fb_cabinet.id", ondelete="CASCADE"), primary_key=True)
+    campaign_id = Column(String(50), primary_key=True)
+    name = Column(String(300), default="")
+    type = Column(String(50), default="")          # Ozon advObjectType / WB type
+    state = Column(String(50), default="")
 
 
 class CostOfGoods(Base):
