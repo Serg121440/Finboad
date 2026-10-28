@@ -1,14 +1,11 @@
 """Finboard design system — colors, CSS, custom components.
 
-Theme auto-switches between dark and light based on Moscow time:
-- 08:00–19:59 MSK → light
-- 20:00–07:59 MSK → dark
-
-Users can override via the sidebar toggle (stored in session_state).
+Light and dark themes are Streamlit's own (.streamlit/config.toml): the app follows
+the device and the user switches in ⋮ → Settings. Custom CSS reads the active theme
+from st.context.theme so cards and tables always match.
 """
 
 import streamlit as st
-from datetime import datetime, timezone, timedelta
 
 # ── Palettes ──────────────────────────────────────────────────────────────────
 
@@ -46,21 +43,13 @@ MP_LABELS = {"wb": "Wildberries", "ozon": "Ozon", "other": "Прочие"}
 
 PLOTLY_PALETTE = [WB_ACCENT, OZON_ACCENT, SUCCESS, INFO, DANGER, "#EC4899", "#14B8A6", "#A855F7"]
 
-_MSK = timezone(timedelta(hours=3))
-
-
-def auto_mode() -> str:
-    """Return 'dark' or 'light' based on Moscow time."""
-    h = datetime.now(_MSK).hour
-    return "light" if 8 <= h < 20 else "dark"
-
-
 def current_mode() -> str:
-    """Return active mode (session override or time-based auto)."""
-    override = st.session_state.get("theme_override")
-    if override in ("dark", "light"):
-        return override
-    return auto_mode()
+    """Active Streamlit theme: follows the device, switchable in ⋮ → Settings."""
+    try:
+        t = st.context.theme.type
+    except Exception:
+        t = None
+    return "dark" if t == "dark" else "light"
 
 
 def palette() -> dict:
@@ -68,18 +57,11 @@ def palette() -> dict:
 
 
 def theme_toggle_sidebar():
-    """Render a small mode toggle in the sidebar."""
-    auto = auto_mode()
-    current = current_mode()
-    label = "🌙 Тёмная" if current == "dark" else "☀ Светлая"
-    hint = f"Авто: {('тёмная' if auto == 'dark' else 'светлая')} (МСК)"
-
+    """Theme hint: Streamlit's own light/dark switch recolours tables too."""
+    label = "🌙 тёмная" if current_mode() == "dark" else "☀ светлая"
     with st.sidebar:
-        col1, col2 = st.columns([3, 1])
-        col1.caption(f"Тема: **{label}** · {hint}")
-        if col2.button("⇄", key="theme_toggle", help="Переключить тёмную/светлую"):
-            st.session_state["theme_override"] = "light" if current == "dark" else "dark"
-            st.rerun()
+        st.caption(f"Тема: {label}. Следует за устройством (день/ночь); переключить — "
+                   "меню ⋮ справа сверху → Settings → Light / Dark.")
 
 
 def plotly_layout() -> dict:

@@ -71,8 +71,40 @@ def _share_access(token: str) -> Access | None:
                       hide_cogs=bool(link.hide_cogs), label=link.label or "")
 
 
+OWNER_COOKIE = "fb_owner"
+COOKIE_DAYS = 30
+
+
+def _owner_token() -> str:
+    """Signed owner token for the login cookie; changes when the password changes."""
+    key = (config.APP_SECRET or config.OWNER_PASSWORD).encode()
+    return hmac.new(key, ("finboard-owner:" + config.OWNER_PASSWORD).encode(), hashlib.sha256).hexdigest()
+
+
+def _cookie_script(value: str, days: int) -> None:
+    """Set a cookie on the app's own origin (component iframes share the origin)."""
+    import streamlit.components.v1 as components
+    secure = "; Secure" if (st.context.headers.get("X-Forwarded-Proto") == "https") else ""
+    components.html(
+        f"<script>window.parent.document.cookie = '{OWNER_COOKIE}={value}; path=/; "
+        f"max-age={days * 86400}; SameSite=Lax{secure}';</script>", height=0)
+
+
+def remember_login() -> None:
+    """Call once per page run: writes the login cookie right after a password login."""
+    if st.session_state.pop("set_owner_cookie", False):
+        _cookie_script(_owner_token(), COOKIE_DAYS)
+
+
+def logout() -> None:
+    _cookie_script("", 0)
+    st.session_state.pop("owner_ok", None)
+    st.session_state["logged_out"] = True
+
+
 def require_access() -> Access:
-    """Owner login by password, or read-only access by ?share=<token>."""
+    """Owner login by password (remembered in a cookie for 30 days),
+    or read-only access by ?share=<token>."""
     token = st.query_params.get("share") or st.session_state.get("share_token")
     if token:
         st.session_state["share_token"] = token
@@ -83,12 +115,18 @@ def require_access() -> Access:
         return acc
     if not config.OWNER_PASSWORD or st.session_state.get("owner_ok"):
         return Access(owner=True)
+    cookie = st.context.cookies.get(OWNER_COOKIE, "")
+    if cookie and not st.session_state.get("logged_out") and hmac.compare_digest(cookie, _owner_token()):
+        st.session_state["owner_ok"] = True
+        return Access(owner=True)
     st.title("Finboard")
     with st.form("login"):
         pwd = st.text_input("Пароль владельца", type="password")
         if st.form_submit_button("Войти", type="primary"):
             if hmac.compare_digest(pwd, config.OWNER_PASSWORD):
                 st.session_state["owner_ok"] = True
+                st.session_state["set_owner_cookie"] = True
+                st.session_state.pop("logged_out", None)
                 st.rerun()
             st.error("Неверный пароль")
     st.stop()

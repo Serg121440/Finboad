@@ -9,7 +9,6 @@ from sqlalchemy import delete, select
 from core.db import session
 from core.models import CostOfGoods, Product
 from dashboard.common import cabinets_df, cabinet_label, data_changed, sidebar_filters, result_for, with_names
-from pnl.wb import normalize_article
 
 ALL = "Все кабинеты"
 
@@ -38,6 +37,40 @@ def _save(df: pd.DataFrame, cab_ids: dict[str, int | None]) -> int:
             s.add(CostOfGoods(article=art, cabinet_id=cab, valid_from=d, cost=cost))
     data_changed()
     return len(rows)
+
+
+def _article(v) -> str:
+    """Excel turns numeric articles into floats: 2479.0 -> '2479'."""
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v).strip()
+
+
+def parse_cost_file(raw: pd.DataFrame, cabinet_label: str) -> pd.DataFrame:
+    """Rows for the cost editor from an uploaded table.
+
+    Needs an article column and a cost column («Себестоимость», or failing that
+    «Закупка»/«Цена»); «Действует с»/«Дата» is optional."""
+    cols = {str(c).lower().strip(): c for c in raw.columns}
+    art = next((cols[c] for c in cols if "артикул" in c), None)
+    cost = (next((cols[c] for c in cols if "себесто" in c), None)
+            or next((cols[c] for c in cols if "закуп" in c or "цена" in c), None))
+    when = next((cols[c] for c in cols if "действ" in c or "дата" in c), None)
+    if not art or not cost:
+        raise ValueError("Не нашёл колонки «Артикул» и «Себестоимость».")
+    out = pd.DataFrame({
+        "Артикул": raw[art].map(_article),
+        "Кабинет": cabinet_label,
+        "Действует с": pd.to_datetime(raw[when], dayfirst=True, errors="coerce").dt.date if when
+        else date(2000, 1, 1),
+        "Себестоимость, ₽/шт": pd.to_numeric(raw[cost].astype(str).str.replace(",", ".")
+                                             .str.replace("\xa0", "").str.replace(" ", ""), errors="coerce"),
+    })
+    out = out[(out["Артикул"] != "") & (out["Артикул"] != "nan") & out["Себестоимость, ₽/шт"].notna()]
+    out["Действует с"] = out["Действует с"].fillna(date(2000, 1, 1))
+    return out
 
 
 def render():
@@ -70,20 +103,16 @@ def render():
         cab = st.selectbox("Для кабинета", list(labels), key="cogs_file_cab")
         if up is not None and st.button("Загрузить файл"):
             raw = pd.read_csv(up, sep=None, engine="python") if up.name.endswith(".csv") else pd.read_excel(up)
-            cols = {c.lower().strip(): c for c in raw.columns}
-            a = next((cols[c] for c in cols if "артикул" in c), None)
-            c = next((cols[c] for c in cols if "себесто" in c or "цена" in c), None)
-            dcol = next((cols[c] for c in cols if "действ" in c or "дата" in c), None)
-            if not a or not c:
-                st.error("Не нашёл колонки «Артикул» и «Себестоимость».")
+            try:
+                add = parse_cost_file(raw, cab)
+            except ValueError as e:
+                st.error(str(e))
             else:
-                add = pd.DataFrame({
-                    "Артикул": raw[a].map(normalize_article), "Кабинет": cab,
-                    "Действует с": pd.to_datetime(raw[dcol]).dt.date if dcol else date(2000, 1, 1),
-                    "Себестоимость, ₽/шт": pd.to_numeric(raw[c], errors="coerce")})
-                n = _save(pd.concat([view, add.dropna(subset=["Себестоимость, ₽/шт"])]), labels)
-                st.success(f"Готово, строк в таблице: {n}")
+                n = _save(pd.concat([view, add]), labels)
+                st.session_state["cogs_msg"] = f"Из файла взято строк: {len(add)}. Всего в таблице: {n}"
                 st.rerun()
+    if st.session_state.get("cogs_msg"):
+        st.success(st.session_state.pop("cogs_msg"))
 
     st.subheader("Продавались без себестоимости")
     f = sidebar_filters()
