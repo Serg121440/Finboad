@@ -16,3 +16,8 @@ venv/
 env/
 
 .streamlit/secrets.toml
+
+# v2
+tests/private/
+.venv/
+*.egg-info/
