@@ -77,20 +77,31 @@ def parse_cost_file(raw: pd.DataFrame, cabinet_label: str) -> pd.DataFrame:
     return out
 
 
-def _current_costs(df: pd.DataFrame) -> dict[str, tuple[float, date]]:
-    """article (normalized) -> (latest cost, valid_from); the «all cabinets» row wins."""
+def read_cost_xlsx(f) -> pd.DataFrame:
+    """The «Себестоимость» sheet of our template (the first sheet is the instructions), else the first sheet."""
+    sheets = pd.ExcelFile(f).sheet_names
+    return pd.read_excel(f, sheet_name="Себестоимость" if "Себестоимость" in sheets else 0)
+
+
+def _current_costs(df: pd.DataFrame) -> dict[tuple[int | None, str], tuple[float, date]]:
+    """(cabinet_id or None for all cabinets, normalized article) -> (latest cost, valid_from)."""
     out = {}
     if df.empty:
         return out
-    d = df.assign(key=df["article"].map(normalize_article), glob=df["cabinet_id"].isna())
-    d = d.sort_values(["glob", "valid_from"])
+    d = df.assign(key=df["article"].map(normalize_article)).sort_values("valid_from")
     for r in d.itertuples():
-        out[r.key] = (float(r.cost), r.valid_from)
+        cab = None if pd.isna(r.cabinet_id) else int(r.cabinet_id)
+        out[(cab, r.key)] = (float(r.cost), r.valid_from)
     return out
 
 
-def _catalog() -> pd.DataFrame:
-    """One row per article over all cabinets: name, cabinets, card cost (Ozon), sold in 90 days."""
+def _cost_for(current: dict, cabinet_id: int, key: str):
+    """As the P&L applies it: the cabinet's own cost beats the one for all cabinets."""
+    return current.get((cabinet_id, key)) or current.get((None, key))
+
+
+def _products() -> pd.DataFrame:
+    """One row per (cabinet, article): name, card cost (Ozon), sold in 90 days."""
     cabs = cabinets_df()
     names = {int(r["id"]): cabinet_label(r) for _, r in cabs.iterrows()}
     since = date.today() - timedelta(days=90)
@@ -103,25 +114,39 @@ def _catalog() -> pd.DataFrame:
             select(LedgerEntry.cabinet_id, LedgerEntry.sku, LedgerEntry.qty)
             .where(LedgerEntry.category.in_(["sale", "return"]), LedgerEntry.date >= since,
                    LedgerEntry.cabinet_id.in_(list(names)))).all(), columns=["cabinet_id", "sku", "qty"])
-    if prods.empty:
-        return pd.DataFrame(columns=["key", "article", "name", "cabinets", "card_min", "card_max", "sold90"])
     if not sold.empty:
         sold = sold.groupby(["cabinet_id", "sku"], as_index=False)["qty"].sum()
         prods = prods.merge(sold, on=["cabinet_id", "sku"], how="left")
     else:
         prods["qty"] = 0
-    prods = prods[prods["article"] != ""]
+    prods = prods[prods["article"] != ""].copy()
     prods["key"] = prods["article"].map(normalize_article)
     prods["cab"] = prods["cabinet_id"].map(names)
-    g = prods.groupby("key").agg(
+    return prods.groupby(["cabinet_id", "key"], as_index=False).agg(
+        article=("article", "first"), name=("name", lambda v: max(v, key=len)), cab=("cab", "first"),
+        card_cost=("card_cost", "max"), qty=("qty", "sum"))
+
+
+def _catalog(prods: pd.DataFrame, current: dict) -> pd.DataFrame:
+    """One row per article over all cabinets; «missing» = some cabinet has no cost for it."""
+    if prods.empty:
+        return pd.DataFrame(columns=["key", "article", "name", "cabinets", "card_min", "card_max", "sold90",
+                                     "cost", "since", "missing"])
+    p = prods.assign(cur=[_cost_for(current, c, k) for c, k in zip(prods["cabinet_id"], prods["key"])])
+    g = p.groupby("key").agg(
         article=("article", "first"), name=("name", lambda v: max(v, key=len)),
         cabinets=("cab", lambda v: ", ".join(sorted(set(v)))),
-        card_min=("card_cost", "min"), card_max=("card_cost", "max"),
-        sold90=("qty", "sum")).reset_index()
-    return g
+        card_min=("card_cost", "min"), card_max=("card_cost", "max"), sold90=("qty", "sum"),
+        missing=("cur", lambda v: any(x is None for x in v)),
+        # template prefill: the all-cabinets cost, or the cabinet's own when the article is in one cabinet
+        cur=("cur", lambda v: v.iloc[0] if len(v) == 1 else None)).reset_index()
+    pre = [current.get((None, k)) or c for k, c in zip(g["key"], g["cur"])]
+    g["cost"] = [x[0] if x else None for x in pre]
+    g["since"] = [x[1] if x else None for x in pre]
+    return g.drop(columns="cur")
 
 
-def _template_xlsx(cat: pd.DataFrame, current: dict) -> bytes:
+def _template_xlsx(cat: pd.DataFrame) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     wb = Workbook()
@@ -147,7 +172,7 @@ def _template_xlsx(cat: pd.DataFrame, current: dict) -> bytes:
     yellow = PatternFill("solid", fgColor="FFF3B0")
     cat = cat.sort_values(["sold90", "article"], ascending=[False, True])
     for r in cat.itertuples():
-        cost, since = current.get(r.key, (None, None))
+        cost, since = (None, None) if pd.isna(r.cost) else (r.cost, r.since)
         card = None if pd.isna(r.card_max) or not r.card_max else (
             r.card_max if r.card_min == r.card_max else f"{r.card_min:.0f}–{r.card_max:.0f}")
         ws.append([r.article, r.name, r.cabinets, cost,
@@ -180,7 +205,7 @@ def refresh_card_costs() -> int:
     return n
 
 
-def _card_block(cat: pd.DataFrame, current: dict, view: pd.DataFrame, labels: dict):
+def _card_block(prods: pd.DataFrame, current: dict, view: pd.DataFrame, labels: dict):
     st.subheader("Себестоимость в карточках Ozon")
     st.caption("Ozon хранит себестоимость в карточке товара (поле «Себестоимость» в ценах). Здесь видно, где она "
                "заполнена, а в Finboard нет или отличается. Обновляется при загрузке товаров кабинета.")
@@ -190,43 +215,47 @@ def _card_block(cat: pd.DataFrame, current: dict, view: pd.DataFrame, labels: di
             n = refresh_card_costs()
         st.session_state["cogs_msg"] = f"Карточек с себестоимостью: {n}"
         st.rerun()
-    have = cat[cat["card_max"].fillna(0) > 0].copy()
+    have = prods[prods["card_cost"].fillna(0) > 0].copy()
     if have.empty:
         st.info("В карточках Ozon себестоимость не найдена (или товары ещё не загружены).")
         return
-    have["ours"] = have["key"].map(lambda k: current.get(k, (None,))[0])
-    have["status"] = [
-        "нет в Finboard" if pd.isna(o) else ("совпадает" if abs(o - mx) < 0.01 and abs(o - mn) < 0.01 else "отличается")
-        for o, mn, mx in zip(have["ours"], have["card_min"], have["card_max"])]
+    have["ours"] = [(_cost_for(current, c, k) or (None,))[0] for c, k in zip(have["cabinet_id"], have["key"])]
+    have["status"] = ["нет в Finboard" if o is None else ("совпадает" if abs(o - c) < 0.01 else "отличается")
+                      for o, c in zip(have["ours"], have["card_cost"])]
     counts = have["status"].value_counts()
     st.caption(" · ".join(f"{k}: {v}" for k, v in counts.items()))
     missing = have[have["status"] == "нет в Finboard"]
     if c2.button(f"Взять из карточек для {len(missing)} товаров без себестоимости", disabled=missing.empty,
                  type="primary"):
-        add = pd.DataFrame({"Артикул": missing["article"], "Кабинет": ALL,
-                            "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": missing["card_max"]})
-        # cabinets disagree: keep the card price per cabinet instead of one for all
-        split = missing[missing["card_min"] != missing["card_max"]]
-        if not split.empty:
-            rows = []
-            with session() as s:
-                for p in s.scalars(select(Product).where(Product.card_cost.is_not(None))):
-                    if normalize_article(p.article) in set(split["key"]):
-                        c = s.get(Cabinet, p.cabinet_id)
-                        rows.append({"Артикул": p.article, "Кабинет": cabinet_label(
-                            {"marketplace": c.marketplace, "name": c.name}),
-                            "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": p.card_cost})
-            add = pd.concat([add[~add["Артикул"].isin(split["article"])], pd.DataFrame(rows)])
+        add = card_cost_rows(have, missing, current)
         n = _save(pd.concat([view, add]), labels)
         st.session_state["cogs_msg"] = f"Добавлено из карточек: {len(add)}. Всего строк: {n}"
         st.rerun()
-    show = have[have["status"] != "совпадает"].sort_values(["status", "sold90"], ascending=[True, False])
+    show = have[have["status"] != "совпадает"].sort_values(["status", "qty"], ascending=[True, False])
     if not show.empty:
         st.dataframe(pd.DataFrame({
-            "Статус": show["status"], "Артикул": show["article"], "Товар": show["name"],
-            "В карточке, ₽": show["card_max"], "В Finboard, ₽": show["ours"],
-            "Продано за 90 дней": show["sold90"]}), use_container_width=True, hide_index=True, height=300)
+            "Статус": show["status"], "Кабинет": show["cab"], "Артикул": show["article"], "Товар": show["name"],
+            "В карточке, ₽": show["card_cost"], "В Finboard, ₽": show["ours"],
+            "Продано за 90 дней": show["qty"]}), use_container_width=True, hide_index=True, height=300)
         st.caption("«Отличается» не меняется автоматически: проверьте и поправьте в таблице выше, если нужно.")
+
+
+def card_cost_rows(have: pd.DataFrame, missing: pd.DataFrame, current: dict) -> pd.DataFrame:
+    """Editor rows for (cabinet, article) pairs without a cost.
+
+    One row for all cabinets (covers WB too) when there is none yet and the cards agree;
+    otherwise a row for each cabinet that lacks a cost. A cabinet's own cost still wins."""
+    cards = have.groupby("key")["card_cost"].agg(["min", "max"])
+    rows = []
+    for key, m in missing.groupby("key"):
+        lo, hi = cards.loc[key]
+        if (None, key) not in current and lo == hi:
+            rows.append({"Артикул": m["article"].iloc[0], "Кабинет": ALL, "Себестоимость, ₽/шт": hi})
+        else:
+            rows += [{"Артикул": r.article, "Кабинет": r.cab, "Себестоимость, ₽/шт": r.card_cost}
+                     for r in m.itertuples()]
+    return pd.DataFrame(rows, columns=["Артикул", "Кабинет", "Себестоимость, ₽/шт"]).assign(
+        **{"Действует с": date(2000, 1, 1)})
 
 
 def render():
@@ -258,7 +287,7 @@ def render():
         up = st.file_uploader("Файл", type=["xlsx", "csv"], key="cogs_file")
         cab = st.selectbox("Для кабинета", list(labels), key="cogs_file_cab")
         if up is not None and st.button("Загрузить файл"):
-            raw = pd.read_csv(up, sep=None, engine="python") if up.name.endswith(".csv") else pd.read_excel(up)
+            raw = pd.read_csv(up, sep=None, engine="python") if up.name.endswith(".csv") else read_cost_xlsx(up)
             try:
                 add = parse_cost_file(raw, cab)
             except ValueError as e:
@@ -270,19 +299,20 @@ def render():
     if st.session_state.get("cogs_msg"):
         st.success(st.session_state.pop("cogs_msg"))
 
-    cat = _catalog()
     current = _current_costs(df)
+    prods = _products()
+    cat = _catalog(prods, current)
     st.subheader("Массовый ввод через шаблон")
     if cat.empty:
         st.caption("Шаблон появится после загрузки товаров хотя бы одного кабинета.")
     else:
-        no_cost = int((~cat["key"].isin(current)).sum())
+        no_cost = int(cat["missing"].sum())
         st.caption(f"Артикулов в кабинетах: {len(cat)}, без себестоимости: {no_cost}. Скачайте шаблон — в нём все "
                    "артикулы, сначала самые продаваемые; заполните жёлтые колонки и загрузите файл выше.")
-        st.download_button("Скачать шаблон xlsx", _template_xlsx(cat, current),
+        st.download_button("Скачать шаблон xlsx", _template_xlsx(cat),
                            file_name=f"себестоимость_шаблон_{date.today():%Y%m%d}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    _card_block(cat, current, view, labels)
+    _card_block(prods, current, view, labels)
 
     st.subheader("Продавались без себестоимости")
     f = sidebar_filters()
