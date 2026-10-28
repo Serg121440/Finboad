@@ -27,9 +27,11 @@ def _insert(model, cabinet_id: int, rows: list[dict]) -> int:
 
 def replace_ledger_days(cabinet_id: int, date_from: date, date_to: date, rows: list[dict],
                         source: str = "api") -> int:
+    """Replace every ledger row of the cabinet in the window, whatever its source:
+    API and an uploaded report for the same days must not add up."""
     with session() as s:
         s.execute(delete(LedgerEntry).where(and_(
-            LedgerEntry.cabinet_id == cabinet_id, LedgerEntry.source == source,
+            LedgerEntry.cabinet_id == cabinet_id,
             LedgerEntry.date >= date_from, LedgerEntry.date <= date_to)))
     return _insert(LedgerEntry, cabinet_id, [dict(r, source=source) for r in rows])
 

@@ -1,63 +1,24 @@
-"""Daily data sync scheduler — runs at 06:00 MSK."""
+"""Manual sync from the command line (the dashboard process syncs daily by itself).
+
+    python scheduler.py            # all active cabinets, incremental
+    python scheduler.py 3 2026-09-01 2026-09-30   # one cabinet, explicit period
+"""
 
 import logging
 import sys
-import os
+from datetime import date
 
-sys.path.insert(0, os.path.dirname(__file__))
+from core.db import init_db
+from sync.runner import sync_all, sync_cabinet
 
-from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
-
-from database.db import init_db
-from normalizer import full_sync
-from config import SCHEDULER_TIMEZONE, SCHEDULER_HOUR, SCHEDULER_MINUTE
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-
-def job():
-    logger.info("Scheduled sync started")
-    results = full_sync(days_back=7)
-    logger.info(
-        "Sync complete — WB: %d, Ozon: %d, GSheets: %d",
-        results["wb"],
-        results["ozon"],
-        results["gsheets"],
-    )
-
-
-def main():
-    init_db()
-
-    logger.info("Running initial sync on startup...")
-    full_sync(days_back=90)
-
-    scheduler = BlockingScheduler(timezone=SCHEDULER_TIMEZONE)
-    scheduler.add_job(
-        job,
-        CronTrigger(hour=SCHEDULER_HOUR, minute=SCHEDULER_MINUTE, timezone=SCHEDULER_TIMEZONE),
-        id="daily_sync",
-        name="Daily marketplace sync",
-        misfire_grace_time=3600,
-    )
-
-    logger.info(
-        "Scheduler started — daily sync at %02d:%02d %s",
-        SCHEDULER_HOUR,
-        SCHEDULER_MINUTE,
-        SCHEDULER_TIMEZONE,
-    )
-
-    try:
-        scheduler.start()
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Scheduler stopped")
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 if __name__ == "__main__":
-    main()
+    init_db()
+    if len(sys.argv) >= 2:
+        args = sys.argv[1:]
+        d0 = date.fromisoformat(args[1]) if len(args) > 1 else None
+        d1 = date.fromisoformat(args[2]) if len(args) > 2 else None
+        print(sync_cabinet(int(args[0]), d0, d1))
+    else:
+        sync_all()

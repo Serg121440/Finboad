@@ -51,6 +51,12 @@ def _fmt(v, kind):
     return {"rub": rub, "num": num, "pct": pct}[kind](v)
 
 
+def _show(table: pd.DataFrame):
+    t = table.reset_index().rename(columns={"index": "Показатель"})
+    st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
+                 column_config={"Показатель": st.column_config.TextColumn(width="large")})
+
+
 def render():
     f = sidebar_filters()
     st.title("Финансовый результат")
@@ -106,7 +112,7 @@ def render():
                          index=[label for _, label, _ in ROWS])
     if "_common" in fixed_by_mp and len(cols) > 1:
         st.caption(f"Постоянные расходы без привязки к кабинету ({rub(fixed_by_mp['_common'])}) входят только в «Всего».")
-    st.dataframe(hide_cogs_columns(table.T).T, use_container_width=True, height=36 * (len(ROWS) + 1))
+    _show(hide_cogs_columns(table.T).T)
 
     # by cabinet
     if len(f.cabinet_ids) > 1:
@@ -122,7 +128,7 @@ def render():
         if by:
             t2 = pd.DataFrame({n: [_fmt(c.get(key), kind) for key, _, kind in ROWS] for n, c in by.items()},
                               index=[label for _, label, _ in ROWS])
-            st.dataframe(t2, use_container_width=True, height=36 * (len(ROWS) + 1))
+            _show(hide_cogs_columns(t2.T).T)
 
     # warnings
     miss = facts[facts["cost_missing_qty"] != 0]

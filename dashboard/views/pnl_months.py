@@ -51,7 +51,9 @@ def render():
         tot = summarize(facts.assign(_k=1), ["_k"]).iloc[0]
         tot["fixed"], tot["net"] = g["fixed"].sum(), g["profit"].sum() + g["fixed"].sum()
         table["Итого"] = [pct(tot[k]) if k in ("margin", "drr") else rub(tot[k]) for k in order]
-    st.dataframe(hide_cogs_columns(table.T).T, use_container_width=True, height=36 * (len(order) + 1))
+    t = hide_cogs_columns(table.T).T.reset_index().rename(columns={"index": "Статья"})
+    st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
+                 column_config={"Статья": st.column_config.TextColumn(width="large")})
     st.caption("Месяц, попавший в период частично, показан только за дни периода. Постоянные расходы такого "
                "месяца пропорциональны числу дней.")
 

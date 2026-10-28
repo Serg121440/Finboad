@@ -98,27 +98,24 @@ class SellerClient:
         """FBO + FBS postings created in [date_from, date_to] (MSK days)."""
         since = f"{(date_from - timedelta(days=1)).isoformat()}T21:00:00Z"
         to = f"{date_to.isoformat()}T20:59:59Z"
-        out = []
-        offset = 0
+        out, cursor = [], ""
         while True:
-            j = self.post("/v2/posting/fbo/list", {
-                "dir": "ASC", "filter": {"since": since, "to": to},
-                "limit": 1000, "offset": offset, "with": {"financial_data": False}})
-            res = j.get("result") or []
-            out += [dict(p, _scheme="fbo") for p in res]
-            if len(res) < 1000:
+            j = self.post("/v3/posting/fbo/list", {
+                "sort_dir": "ASC", "filter": {"since": since, "to": to},
+                "limit": 100, "cursor": cursor})
+            out += [dict(p, _scheme="fbo") for p in j.get("postings") or []]
+            cursor = j.get("cursor") or ""
+            if not j.get("has_next") or not cursor:
                 break
-            offset += 1000
-        offset = 0
+        cursor = ""
         while True:
-            j = self.post("/v3/posting/fbs/list", {
-                "dir": "ASC", "filter": {"since": since, "to": to},
-                "limit": 1000, "offset": offset, "with": {"financial_data": False}})
-            res = (j.get("result") or {}).get("postings") or []
-            out += [dict(p, _scheme="fbs") for p in res]
-            if not (j.get("result") or {}).get("has_next"):
+            j = self.post("/v4/posting/fbs/list", {
+                "sort_dir": "ASC", "filter": {"since": since, "to": to},
+                "limit": 100, "cursor": cursor})
+            out += [dict(p, _scheme="fbs") for p in j.get("postings") or []]
+            cursor = j.get("cursor") or ""
+            if not j.get("has_next") or not cursor:
                 break
-            offset += 1000
         return out
 
 

@@ -24,7 +24,8 @@ MP_NAMES = {"ozon": "Ozon", "wb": "Wildberries"}
 def rub(v) -> str:
     if v is None or pd.isna(v):
         return "—"
-    return f"{v:,.0f}".replace(",", " ") + " ₽"
+    v = round(float(v))
+    return f"{v + 0:,.0f}".replace(",", " ") + " ₽"
 
 
 def pct(v) -> str:
@@ -72,8 +73,9 @@ def _share_access(token: str) -> Access | None:
 
 def require_access() -> Access:
     """Owner login by password, or read-only access by ?share=<token>."""
-    token = st.query_params.get("share")
+    token = st.query_params.get("share") or st.session_state.get("share_token")
     if token:
+        st.session_state["share_token"] = token
         acc = _share_access(token)
         if acc is None:
             st.error("Ссылка недействительна: срок истёк или доступ отозван.")

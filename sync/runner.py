@@ -85,9 +85,11 @@ def ozon_orders_from_postings(postings: list[dict]) -> list[dict]:
         cancelled = p.get("status") == "cancelled"
         for pr in p.get("products") or []:
             qty = int(pr.get("quantity") or 0)
+            price = pr.get("price")
+            price = float((price.get("amount") if isinstance(price, dict) else price) or 0)
             rows.append({
                 "date": d, "sku": str(pr.get("sku")), "qty": qty,
-                "amount": round(float(pr.get("price") or 0) * qty, 2),
+                "amount": round(price * qty, 2),
                 "cancelled": cancelled, "posting": p.get("posting_number", ""),
                 "source_key": f"{p.get('posting_number')}:{pr.get('sku')}",
             })
