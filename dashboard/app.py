@@ -1,51 +1,80 @@
-"""Finboard — Streamlit multi-page dashboard entry point.
+"""Finboard — Streamlit entry point.
 
-Navigation between pages is handled by st.navigation (Streamlit 1.36+).
-Each view module exposes a `render()` function called by st.Page.
+Owner: all pages. Share link (?share=token): read-only result pages for the
+cabinets the link allows.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import streamlit as st
 
-import database.db as _db
-from database.db import init_db
-from dashboard.theme import inject_css, brand_block, theme_toggle_sidebar
-from dashboard.views import overview, analytics, upload, settings as settings_view
-
-
-st.set_page_config(
-    page_title="Finboard — Маркетплейс Аналитика",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
+from core.db import DatabaseUnavailable, init_db, is_sqlite
+from core import config
+from dashboard.common import require_access
+from dashboard.theme import brand_block, inject_css, theme_toggle_sidebar
+from dashboard.views import (
+    access as access_view, ads, cabinets, cogs, fixed, pnl_months, products, summary, tools, uploads,
 )
 
-init_db()
-inject_css()
+st.set_page_config(page_title="Finboard — финансы маркетплейсов", page_icon="📊", layout="wide",
+                   initial_sidebar_state="expanded")
 
-if _db.db_fallback_active:
-    st.warning(
-        "⚠️ **PostgreSQL недоступен.** Приложение работает с локальным SQLite "
-        "(`finboard.db`). Данные не попадут в основную базу. "
-        "Проверь `DATABASE_URL` и перезапусти сервер.",
-        icon="🔴",
-    )
+
+@st.cache_resource
+def _boot():
+    """Once per server process: tables and the daily sync at SYNC_HOUR MSK."""
+    init_db()
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from sync.runner import sync_all
+    sched = BackgroundScheduler(timezone=config.TIMEZONE)
+    sched.add_job(sync_all, "cron", hour=config.SYNC_HOUR, minute=0, id="daily_sync",
+                  max_instances=1, coalesce=True, misfire_grace_time=3600)
+    sched.start()
+    return sched
+
+
+try:
+    _boot()
+except DatabaseUnavailable as e:
+    st.error("База данных недоступна. Проверьте переменную DATABASE_URL в панели и что PostgreSQL запущен. "
+             "Без SSL-параметров: база доступна только во внутренней сети.")
+    st.caption(str(e)[:500])
+    st.stop()
+
+inject_css()
+acc = require_access()
+st.session_state["access"] = acc
 
 with st.sidebar:
     brand_block()
+    if acc.owner and is_sqlite():
+        st.caption("⚠️ Локальная база SQLite (DATABASE_URL не задан)")
+    if not acc.owner:
+        st.caption(f"Просмотр по ссылке{': ' + acc.label if acc.label else ''}")
 theme_toggle_sidebar()
 
-# ── Multi-page navigation ─────────────────────────────────────────────────────
+pages = {
+    "Отчёты": [
+        st.Page(summary.render, title="Финансовый результат", icon=":material/monitoring:",
+                url_path="summary", default=True),
+        st.Page(pnl_months.render, title="ОПиУ по месяцам", icon=":material/table_chart:", url_path="pnl"),
+        st.Page(products.render, title="Товары", icon=":material/inventory_2:", url_path="products"),
+        st.Page(ads.render, title="Реклама", icon=":material/campaign:", url_path="ads"),
+    ],
+}
+if acc.owner:
+    pages["Данные"] = [
+        st.Page(cogs.render, title="Себестоимость", icon=":material/sell:", url_path="cogs"),
+        st.Page(fixed.render, title="Постоянные расходы", icon=":material/receipt_long:", url_path="fixed"),
+        st.Page(cabinets.render, title="Кабинеты и налоги", icon=":material/storefront:", url_path="cabinets"),
+        st.Page(uploads.render, title="Загрузка отчётов", icon=":material/upload_file:", url_path="uploads"),
+        st.Page(access_view.render, title="Доступ по ссылке", icon=":material/share:", url_path="access"),
+    ]
+    pages["Доп. инструменты"] = [
+        st.Page(tools.render, title="Инструменты", icon=":material/construction:", url_path="tools"),
+    ]
 
-pages = [
-    st.Page(overview.render,      title="Обзор",           icon=":material/dashboard:",   url_path="overview",   default=True),
-    st.Page(analytics.render,     title="Аналитика",       icon=":material/analytics:",   url_path="analytics"),
-    st.Page(upload.render,        title="Загрузка данных", icon=":material/upload_file:", url_path="upload"),
-    st.Page(settings_view.render, title="Настройки",       icon=":material/settings:",    url_path="settings"),
-]
-
-nav = st.navigation(pages, position="sidebar")
-nav.run()
+st.navigation(pages, position="sidebar").run()
