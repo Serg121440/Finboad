@@ -114,6 +114,8 @@ def ensure_entity(cabinet_id: int, seller: SellerClient, relink: bool = False) -
         return None
     with _ENTITY_LOCK, session() as s:
         cab = s.get(Cabinet, cabinet_id)
+        if cab.entity_id and not relink:  # the user picked one while seller info was loading
+            return cab.entity_id
         ent = s.scalars(select(LegalEntity).where(LegalEntity.inn == inn)).first()
         if ent is None:
             ent = LegalEntity(name=co.get("legal_name") or co.get("name") or inn, inn=inn,

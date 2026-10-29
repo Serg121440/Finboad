@@ -48,3 +48,19 @@ def test_relink_only_when_asked():
     assert runner.ensure_entity(cid, FakeSeller("7700000002")) == first
     second = runner.ensure_entity(cid, FakeSeller("7700000002"), relink=True)
     assert second != first
+
+
+def test_link_made_during_lookup_is_kept():
+    (cid,) = _cabinets(1)
+
+    class SlowSeller(FakeSeller):
+        def seller_info(self):
+            with session() as s:  # the user assigns an entity meanwhile
+                e = LegalEntity(name="выбрано вручную", kind="ip", inn="7700000002")
+                s.add(e)
+                s.flush()
+                s.get(Cabinet, cid).entity_id = self.picked = e.id
+            return super().seller_info()
+
+    seller = SlowSeller()
+    assert runner.ensure_entity(cid, seller) == seller.picked
