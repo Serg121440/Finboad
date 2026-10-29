@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from dashboard.common import MP_NAMES, pct, result_for, rub, sidebar_filters, summarize, hide_cogs_columns
+from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, hide_cogs_columns
 from pnl.engine import LINE_TITLES
 
 LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services", "other", "ads",
@@ -11,8 +11,8 @@ LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services
 
 
 def render():
-    f = sidebar_filters()
     st.title("ОПиУ по месяцам")
+    f = period_filters()
     if f is None:
         st.info("Кабинетов пока нет.")
         return

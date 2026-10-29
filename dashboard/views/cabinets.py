@@ -10,12 +10,13 @@ from sqlalchemy import delete, select
 from core.crypto import SecretMissing, decrypt, encrypt, mask
 from core.db import session
 from core.models import Cabinet, LegalEntity, SyncRun, TaxSetting, now_msk
-from dashboard.common import MP_NAMES, data_changed
-from pnl.tax import REGIMES, VAT_MODES
+from dashboard.common import MP_NAMES, data_changed, show_period
+from pnl.tax import REGIMES, VAT_MODES, regime_from_marketplace
 from sync import runner
 
 KIND = {"ip": "ИП", "ooo": "ООО"}
 STREAM = {"products": "товары", "accruals": "начисления", "orders": "заказы", "ads": "реклама"}
+NEW_ENTITY = "➕ Новое юрлицо…"
 RUN_NAMES = STREAM | {"report": "отчёт xlsx", "wb_report": "отчёт WB xlsx"}
 
 
@@ -27,8 +28,12 @@ def _entities_block():
                "указанной даты до следующей строки — при смене режима прошлые периоды не пересчитываются.")
     with session() as s:
         ents = s.scalars(select(LegalEntity).order_by(LegalEntity.name)).all()
+    with session() as s:
+        taxed = set(s.scalars(select(TaxSetting.entity_id)).all())
     for e in ents:
-        with st.expander(f"{KIND.get(e.kind, e.kind)} {e.name}" + (f" · ИНН {e.inn}" if e.inn else "")):
+        title = f"{KIND.get(e.kind, e.kind)} {e.name}" + (f" · ИНН {e.inn}" if e.inn else "")
+        with st.expander(title + ("" if e.id in taxed else " · ⚠️ налоговый режим не задан"),
+                         expanded=e.id not in taxed):
             _tax_editor(e)
     with st.form("new_entity", clear_on_submit=True):
         c1, c2, c3 = st.columns([3, 1, 2])
@@ -53,6 +58,19 @@ def _tax_editor(e: LegalEntity):
             "Доход за прошлый год, ₽": r.vat_vs_prior_year or 0.0} for r in rows],
             columns=["Действует с", "Режим", "Ставка УСН, %", "НДС", "Есть работники",
                      "Взносы ИП в месяц, ₽", "Доход за прошлый год, ₽"])
+    hint = regime_from_marketplace(e.mp_tax_system, e.kind)
+    if df.empty and e.mp_tax_system:
+        if hint:
+            st.info(f"В кабинете Ozon у юрлица указан режим {e.mp_tax_system} — это «{REGIMES[hint]}». "
+                    "Проверьте и примените, или задайте режим в таблице ниже.")
+            if st.button(f"Применить «{REGIMES[hint]}» с 01.01.{date.today().year}", key=f"hint_{e.id}"):
+                with session() as s:
+                    s.add(TaxSetting(entity_id=e.id, valid_from=date(date.today().year, 1, 1), regime=hint,
+                                     vat_mode="auto"))
+                data_changed()
+                st.rerun()
+        else:
+            st.info(f"В кабинете Ozon у юрлица указан режим {e.mp_tax_system}. Задайте его в таблице ниже.")
     regimes = [k for k in REGIMES if k != "NONE"]
     if e.kind == "ooo":
         regimes = [k for k in regimes if k != "OSNO_IP"]
@@ -204,16 +222,43 @@ def _cabinet_card(c: Cabinet, entities: dict):
         c1, c2, c3 = st.columns(3)
         c1.caption(f"Последняя загрузка: {c.last_sync_at:%d.%m.%Y %H:%M}" if c.last_sync_at else "Ещё не загружался")
         ent_names = {v: k for k, v in entities.items()}
-        new_ent = c2.selectbox("Юрлицо", ["—"] + list(entities), key=f"ent_{c.id}",
-                               index=(["—"] + list(entities)).index(ent_names.get(c.entity_id, "—")),
-                               help="Налоги считаются по юрлицу. Список юрлиц — в блоке «Юрлица и налоги» выше.")
-        if not entities:
-            c2.caption("Юрлиц пока нет — добавьте в блоке «Юрлица и налоги» выше.")
+        opts = ["—"] + list(entities) + [NEW_ENTITY]
+        new_ent = c2.selectbox("Юрлицо", opts, key=f"ent_{c.id}",
+                               index=opts.index(ent_names.get(c.entity_id, "—")),
+                               help="Налоги считаются по юрлицу, по всем его кабинетам.")
         active = c3.toggle("Активен (ежедневная загрузка)", value=c.active, key=f"act_{c.id}")
-        if entities.get(new_ent) != c.entity_id or active != c.active:
+        if new_ent == NEW_ENTITY:
+            with c2.container(border=True):
+                if c.marketplace == "ozon" and c2.button("Взять из кабинета Ozon", key=f"ozent_{c.id}",
+                                                        type="primary"):
+                    try:
+                        keys = decrypt(c.secrets)
+                        runner.ensure_entity(c.id, runner.SellerClient(keys["client_id"], keys["api_key"]),
+                                            relink=True)
+                    except Exception as ex:
+                        st.error(f"Ozon не отдал реквизиты: {ex}")
+                    else:
+                        st.session_state.pop(f"ent_{c.id}", None)
+                        data_changed()
+                        st.rerun()
+                name = st.text_input("Название", key=f"nename_{c.id}", placeholder="ООО «Перфетто Спорт»")
+                k1, k2 = st.columns(2)
+                kind = k1.selectbox("Тип", list(KIND), format_func=KIND.get, key=f"nekind_{c.id}")
+                inn = k2.text_input("ИНН", key=f"neinn_{c.id}")
+                if st.button("Создать и привязать", key=f"necreate_{c.id}") and name.strip():
+                    with session() as s:
+                        ent = LegalEntity(name=name.strip(), kind=kind, inn=inn.strip())
+                        s.add(ent)
+                        s.flush()
+                        s.get(Cabinet, c.id).entity_id = ent.id
+                    st.session_state.pop(f"ent_{c.id}", None)
+                    data_changed()
+                    st.rerun()
+        target = c.entity_id if new_ent == NEW_ENTITY else entities.get(new_ent)
+        if target != c.entity_id or active != c.active:
             with session() as s:
                 obj = s.get(Cabinet, c.id)
-                obj.entity_id, obj.active = entities.get(new_ent), active
+                obj.entity_id, obj.active = target, active
             data_changed()
             st.rerun()
 
@@ -222,8 +267,8 @@ def _cabinet_card(c: Cabinet, entities: dict):
                 _show_report(json.loads(c.key_report))
 
         st.markdown("**Загрузить историю**")
-        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а период из отчёта можно загрузить "
-                   "кнопкой в боковой панели отчёта. Здесь — первая загрузка или перезагрузка отдельных данных.")
+        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а нужный период загружается кнопкой "
+                   "«Загрузить» над любым отчётом. Здесь — первая загрузка или перезагрузка отдельных данных.")
         d1, d2, d3, d4 = st.columns([1, 1, 2, 1])
         f0 = d1.date_input("с", value=date.today() - timedelta(days=30), format="DD.MM.YYYY", key=f"f0_{c.id}")
         f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}",
@@ -232,7 +277,8 @@ def _cabinet_card(c: Cabinet, entities: dict):
                                  key=f"st_{c.id}")
         if d4.button("Загрузить", key=f"sync_{c.id}", disabled=running, type="primary"):
             runner.start_background(c.id, f0, f1, tuple(streams))
-            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена")
+            show_period(f0, f1)
+            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена; отчёты откроются на этом периоде")
             st.rerun()
         runs = _runs(c.id)
         if not runs.empty:

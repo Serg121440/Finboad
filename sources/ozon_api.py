@@ -49,6 +49,10 @@ class SellerClient:
             return r.json()
         raise OzonError(f"{path}: нет ответа после {retries} попыток")
 
+    def seller_info(self) -> dict:
+        """Company on file: legal_name, ownership_form, inn, tax_system."""
+        return self.post("/v1/seller/info", {}).get("company", {})
+
     # ── finance ──────────────────────────────────────────────────────────────
 
     def accrual_types(self) -> list[dict]:

@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, hide_cogs_columns, result_for, sidebar_filters, summarize, with_names,
+    MP_NAMES, hide_cogs_columns, result_for, period_filters, summarize, with_names,
 )
 from pnl.engine import NO_SKU
 
@@ -17,8 +17,8 @@ BASES = {
 
 
 def render():
-    f = sidebar_filters()
     st.title("Товары")
+    f = period_filters()
     if f is None:
         st.info("Кабинетов пока нет.")
         return

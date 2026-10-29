@@ -4,13 +4,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dashboard.common import MP_NAMES, pct, result_for, rub, sidebar_filters, summarize, with_names
+from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, with_names
 from pnl.engine import NO_SKU
 
 
 def render():
-    f = sidebar_filters()
     st.title("Реклама")
+    f = period_filters()
     if f is None:
         st.info("Кабинетов пока нет.")
         return
