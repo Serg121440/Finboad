@@ -175,12 +175,20 @@ def _show_report(report: dict):
         (st.success if v == "ok" else st.warning)(f"{k}: {'доступ есть' if v == 'ok' else v}")
 
 
+def _auto(r: SyncRun) -> bool:
+    # runs recorded before the trigger column existed: the daily schedule starts at 06:00
+    if r.trigger is None and r.started_at:
+        return r.started_at.hour == 6 and r.started_at.minute < 10
+    return r.trigger == "auto"
+
+
 def _runs(cab_id: int) -> pd.DataFrame:
     with session() as s:
         rows = s.scalars(select(SyncRun).where(SyncRun.cabinet_id == cab_id)
                          .order_by(SyncRun.id.desc()).limit(12)).all()
         return pd.DataFrame([{
             "Начало": r.started_at.strftime("%d.%m %H:%M") if r.started_at else "",
+            "Запуск": "авто" if _auto(r) else "вручную",
             "Данные": STREAM.get(r.stream, r.stream),
             "Период": f"{r.date_from:%d.%m.%y}–{r.date_to:%d.%m.%y}" if r.date_from else "",
             "Статус": {"ok": "✅", "error": "❌", "running": "⏳"}.get(r.status, r.status),
@@ -268,7 +276,8 @@ def render():
     st.divider()
     st.subheader("Кабинеты")
     st.caption("Ключи хранятся в базе в зашифрованном виде и нигде не показываются. Достаточно ключей только "
-               "на чтение. Данные обновляются каждый день в 06:00 МСК, последние 14 дней перечитываются.")
+               "на чтение. Каждый день в 06:00 МСК загрузка идёт сама («авто» в таблице загрузок): последние "
+               "14 дней перечитываются, потому что маркетплейс задним числом поправляет начисления.")
     for c in cabs:
         _cabinet_card(c, entities)
     _new_cabinet_form(entities)

@@ -209,6 +209,7 @@ class SyncRun(Base):
     started_at = Column(DateTime, default=now_msk)
     finished_at = Column(DateTime)
     status = Column(String(10), default="running") # running | ok | error
+    trigger = Column(String(10), default="manual") # auto (daily schedule) | manual
     rows = Column(Integer, default=0)
     date_from = Column(Date)
     date_to = Column(Date)
