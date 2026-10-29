@@ -9,6 +9,7 @@ from dashboard.common import MP_NAMES, cabinets_df, cabinet_label, data_changed,
 from pnl import ozon as ozon_pnl
 from pnl import wb as wb_pnl
 from sync import store
+from sync.runner import Run
 
 
 def render():
@@ -32,6 +33,7 @@ def render():
                 return
             d0, d1 = min(r["date"] for r in rows), max(r["date"] for r in rows)
             n = store.replace_ledger_days(int(cab["id"]), d0, d1, rows, source="xlsx")
+            Run(int(cab["id"]), "report", d0, d1).done(n, "отчёт xlsx")
             prods = (df[df["SKU"].notna()][["SKU", "Артикул", "Название товара"]].drop_duplicates("SKU"))
             store.upsert_products(int(cab["id"]), [
                 {"sku": str(r["SKU"]).split(".")[0], "offer_id": str(r["Артикул"]), "name": str(r["Название товара"])}
@@ -55,6 +57,10 @@ def render():
                     r["Номер отчёта"] = no
                 ledger = wb_pnl.rows_to_ledger(rows)
                 n = store.replace_ledger_keys(int(cab["id"]), [f"{no}:"], ledger, source="xlsx")
+                if ledger:
+                    # one of the week's reports (Russia or CIS): logged, but not counted as full coverage
+                    days = [r["date"] for r in ledger]
+                    Run(int(cab["id"]), "wb_report", min(days), max(days)).done(n, f"отчёт №{no}")
                 store.upsert_products(int(cab["id"]), list(wb_pnl.products_from_rows(rows).values()))
                 st.success(f"Отчёт №{no}: строк {n}, итог {rub(sum(r['amount'] for r in ledger))}")
             data_changed()

@@ -28,6 +28,7 @@ REFRESH_DAYS = 14          # re-read this many recent days on every incremental 
 DEFAULT_HISTORY_DAYS = 90  # first load when the cabinet has no explicit start date
 _LOCK = threading.Lock()
 _running: set[int] = set()
+_ctx = threading.local()  # .trigger: "auto" for the daily schedule, else "manual"
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -56,7 +57,8 @@ class Run:
 
     def __init__(self, cabinet_id: int, stream: str, date_from: date, date_to: date):
         with session() as s:
-            r = SyncRun(cabinet_id=cabinet_id, stream=stream, date_from=date_from, date_to=date_to)
+            r = SyncRun(cabinet_id=cabinet_id, stream=stream, date_from=date_from, date_to=date_to,
+                        trigger=getattr(_ctx, "trigger", "manual"))
             s.add(r)
             s.flush()
             self.id = r.id
@@ -315,11 +317,15 @@ def is_running(cabinet_id: int) -> bool:
 def sync_all() -> None:
     with session() as s:
         ids = [c.id for c in s.scalars(select(Cabinet).where(Cabinet.active.is_(True), Cabinet.secrets != ""))]
-    for cid in ids:
-        try:
-            sync_cabinet(cid)
-        except Exception:
-            log.exception("scheduled sync of cabinet %s failed", cid)
+    _ctx.trigger = "auto"
+    try:
+        for cid in ids:
+            try:
+                sync_cabinet(cid)
+            except Exception:
+                log.exception("scheduled sync of cabinet %s failed", cid)
+    finally:
+        _ctx.trigger = "manual"
 
 
 def check_keys(marketplace: str, keys: dict) -> dict[str, str]:

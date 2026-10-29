@@ -16,6 +16,7 @@ from sync import runner
 
 KIND = {"ip": "ИП", "ooo": "ООО"}
 STREAM = {"products": "товары", "accruals": "начисления", "orders": "заказы", "ads": "реклама"}
+RUN_NAMES = STREAM | {"report": "отчёт xlsx", "wb_report": "отчёт WB xlsx"}
 
 
 # ── legal entities and taxes ─────────────────────────────────────────────────
@@ -175,13 +176,21 @@ def _show_report(report: dict):
         (st.success if v == "ok" else st.warning)(f"{k}: {'доступ есть' if v == 'ok' else v}")
 
 
+def _auto(r: SyncRun) -> bool:
+    # runs recorded before the trigger column existed: the daily schedule starts at 06:00
+    if r.trigger is None and r.started_at:
+        return r.started_at.hour == 6 and r.started_at.minute < 10
+    return r.trigger == "auto"
+
+
 def _runs(cab_id: int) -> pd.DataFrame:
     with session() as s:
         rows = s.scalars(select(SyncRun).where(SyncRun.cabinet_id == cab_id)
                          .order_by(SyncRun.id.desc()).limit(12)).all()
         return pd.DataFrame([{
             "Начало": r.started_at.strftime("%d.%m %H:%M") if r.started_at else "",
-            "Данные": STREAM.get(r.stream, r.stream),
+            "Запуск": "авто" if _auto(r) else "вручную",
+            "Данные": RUN_NAMES.get(r.stream, r.stream),
             "Период": f"{r.date_from:%d.%m.%y}–{r.date_to:%d.%m.%y}" if r.date_from else "",
             "Статус": {"ok": "✅", "error": "❌", "running": "⏳"}.get(r.status, r.status),
             "Строк": r.rows, "Сообщение": (r.message or "").split("\n")[0][:160]} for r in rows])
@@ -196,7 +205,10 @@ def _cabinet_card(c: Cabinet, entities: dict):
         c1.caption(f"Последняя загрузка: {c.last_sync_at:%d.%m.%Y %H:%M}" if c.last_sync_at else "Ещё не загружался")
         ent_names = {v: k for k, v in entities.items()}
         new_ent = c2.selectbox("Юрлицо", ["—"] + list(entities), key=f"ent_{c.id}",
-                               index=(["—"] + list(entities)).index(ent_names.get(c.entity_id, "—")))
+                               index=(["—"] + list(entities)).index(ent_names.get(c.entity_id, "—")),
+                               help="Налоги считаются по юрлицу. Список юрлиц — в блоке «Юрлица и налоги» выше.")
+        if not entities:
+            c2.caption("Юрлиц пока нет — добавьте в блоке «Юрлица и налоги» выше.")
         active = c3.toggle("Активен (ежедневная загрузка)", value=c.active, key=f"act_{c.id}")
         if entities.get(new_ent) != c.entity_id or active != c.active:
             with session() as s:
@@ -209,15 +221,18 @@ def _cabinet_card(c: Cabinet, entities: dict):
             with st.popover("Права ключей"):
                 _show_report(json.loads(c.key_report))
 
-        st.markdown("**Загрузить данные**")
+        st.markdown("**Загрузить историю**")
+        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а период из отчёта можно загрузить "
+                   "кнопкой в боковой панели отчёта. Здесь — первая загрузка или перезагрузка отдельных данных.")
         d1, d2, d3, d4 = st.columns([1, 1, 2, 1])
         f0 = d1.date_input("с", value=date.today() - timedelta(days=30), format="DD.MM.YYYY", key=f"f0_{c.id}")
-        f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}")
+        f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}",
+                           max_value=date.today())
         streams = d3.multiselect("Что", list(STREAM), default=list(STREAM), format_func=STREAM.get,
                                  key=f"st_{c.id}")
         if d4.button("Загрузить", key=f"sync_{c.id}", disabled=running, type="primary"):
             runner.start_background(c.id, f0, f1, tuple(streams))
-            st.toast("Загрузка запущена")
+            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена")
             st.rerun()
         runs = _runs(c.id)
         if not runs.empty:
@@ -258,11 +273,12 @@ def render():
         entities = {e.name: e.id for e in s.scalars(select(LegalEntity).order_by(LegalEntity.name))}
         cabs = s.scalars(select(Cabinet).order_by(Cabinet.marketplace, Cabinet.name)).all()
 
+    _entities_block()
+    st.divider()
     st.subheader("Кабинеты")
     st.caption("Ключи хранятся в базе в зашифрованном виде и нигде не показываются. Достаточно ключей только "
-               "на чтение. Данные обновляются каждый день в 06:00 МСК, последние 14 дней перечитываются.")
+               "на чтение. Каждый день в 06:00 МСК загрузка идёт сама («авто» в таблице загрузок): последние "
+               "14 дней перечитываются, потому что маркетплейс задним числом поправляет начисления.")
     for c in cabs:
         _cabinet_card(c, entities)
     _new_cabinet_form(entities)
-    st.divider()
-    _entities_block()
