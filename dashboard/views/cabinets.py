@@ -16,6 +16,7 @@ from sync import runner
 
 KIND = {"ip": "ИП", "ooo": "ООО"}
 STREAM = {"products": "товары", "accruals": "начисления", "orders": "заказы", "ads": "реклама"}
+RUN_NAMES = STREAM | {"report": "отчёт xlsx"}
 
 
 # ── legal entities and taxes ─────────────────────────────────────────────────
@@ -189,7 +190,7 @@ def _runs(cab_id: int) -> pd.DataFrame:
         return pd.DataFrame([{
             "Начало": r.started_at.strftime("%d.%m %H:%M") if r.started_at else "",
             "Запуск": "авто" if _auto(r) else "вручную",
-            "Данные": STREAM.get(r.stream, r.stream),
+            "Данные": RUN_NAMES.get(r.stream, r.stream),
             "Период": f"{r.date_from:%d.%m.%y}–{r.date_to:%d.%m.%y}" if r.date_from else "",
             "Статус": {"ok": "✅", "error": "❌", "running": "⏳"}.get(r.status, r.status),
             "Строк": r.rows, "Сообщение": (r.message or "").split("\n")[0][:160]} for r in rows])

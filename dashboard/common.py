@@ -213,12 +213,32 @@ def sidebar_filters(key: str = "flt") -> Filters | None:
     return Filters(d0, d1, ids, cabs)
 
 
-def _loaded_range() -> dict[int, tuple[date, date]]:
-    """cabinet_id -> first and last day with accruals in the database."""
+def _loaded_intervals() -> dict[int, list[tuple[date, date]]]:
+    """cabinet_id -> periods whose accruals loaded successfully (API runs and uploaded reports)."""
+    out: dict[int, list[tuple[date, date]]] = {}
     with session() as s:
-        return {c: (a, b) for c, a, b in s.execute(
-            select(LedgerEntry.cabinet_id, func.min(LedgerEntry.date), func.max(LedgerEntry.date))
-            .group_by(LedgerEntry.cabinet_id)).all()}
+        for c, a, b in s.execute(select(SyncRun.cabinet_id, SyncRun.date_from, SyncRun.date_to)
+                                 .where(SyncRun.stream.in_(["accruals", "report"]), SyncRun.status == "ok",
+                                        SyncRun.date_from.is_not(None))):
+            out.setdefault(c, []).append((a, b))
+    return out
+
+
+def merge_intervals(intervals: list[tuple[date, date]]) -> list[tuple[date, date]]:
+    """Union of day ranges; adjacent ranges join."""
+    merged: list[list[date]] = []
+    for a, b in sorted(intervals):
+        if merged and a <= merged[-1][1] + timedelta(days=1):
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [(a, b) for a, b in merged]
+
+
+def missing_days(intervals: list[tuple[date, date]], d0: date, d1: date) -> int:
+    """Days of d0..d1 not covered by any interval."""
+    covered = sum(max(0, (min(b, d1) - max(a, d0)).days + 1) for a, b in merge_intervals(intervals))
+    return max(0, (d1 - d0).days + 1 - covered)
 
 
 @st.fragment(run_every=5)
@@ -239,13 +259,15 @@ def _load_block(d0: date, d1: date, ids: list[int], names: dict[int, str]):
     """Owner only: what is loaded for the period, and a button to load it from the marketplace APIs."""
     from sync import runner
     st.markdown("**Данные из API**")
-    have = _loaded_range()
-    gaps = []
+    have = _loaded_intervals()
+    end = min(d1, date.today() - timedelta(days=1))
+    gaps = False
     for i in ids:
-        a, b = have.get(i, (None, None))
-        st.caption(f"{names[i]}: " + (f"начисления {a:%d.%m.%Y} — {b:%d.%m.%Y}" if a else "ещё не загружены"))
-        if not a or a > d0 or b < min(d1, date.today() - timedelta(days=1)):
-            gaps.append(i)
+        spans = merge_intervals(have.get(i, []))
+        miss = missing_days(spans, d0, end) if d0 <= end else 0
+        gaps |= miss > 0
+        text = ", ".join(f"{a:%d.%m}–{b:%d.%m.%y}" for a, b in spans[-3:]) or "ещё не загружены"
+        st.caption(f"{names[i]}: начисления {text}" + (f" · не загружено дней в периоде: {miss}" if miss else ""))
     if gaps:
         st.warning("За часть выбранного периода данных нет — загрузите период.")
     busy = any(runner.is_running(i) for i in ids)
