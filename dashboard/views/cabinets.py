@@ -196,7 +196,10 @@ def _cabinet_card(c: Cabinet, entities: dict):
         c1.caption(f"Последняя загрузка: {c.last_sync_at:%d.%m.%Y %H:%M}" if c.last_sync_at else "Ещё не загружался")
         ent_names = {v: k for k, v in entities.items()}
         new_ent = c2.selectbox("Юрлицо", ["—"] + list(entities), key=f"ent_{c.id}",
-                               index=(["—"] + list(entities)).index(ent_names.get(c.entity_id, "—")))
+                               index=(["—"] + list(entities)).index(ent_names.get(c.entity_id, "—")),
+                               help="Налоги считаются по юрлицу. Список юрлиц — в блоке «Юрлица и налоги» выше.")
+        if not entities:
+            c2.caption("Юрлиц пока нет — добавьте в блоке «Юрлица и налоги» выше.")
         active = c3.toggle("Активен (ежедневная загрузка)", value=c.active, key=f"act_{c.id}")
         if entities.get(new_ent) != c.entity_id or active != c.active:
             with session() as s:
@@ -209,15 +212,18 @@ def _cabinet_card(c: Cabinet, entities: dict):
             with st.popover("Права ключей"):
                 _show_report(json.loads(c.key_report))
 
-        st.markdown("**Загрузить данные**")
+        st.markdown("**Загрузить историю**")
+        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а период из отчёта можно загрузить "
+                   "кнопкой в боковой панели отчёта. Здесь — первая загрузка или перезагрузка отдельных данных.")
         d1, d2, d3, d4 = st.columns([1, 1, 2, 1])
         f0 = d1.date_input("с", value=date.today() - timedelta(days=30), format="DD.MM.YYYY", key=f"f0_{c.id}")
-        f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}")
+        f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}",
+                           max_value=date.today())
         streams = d3.multiselect("Что", list(STREAM), default=list(STREAM), format_func=STREAM.get,
                                  key=f"st_{c.id}")
         if d4.button("Загрузить", key=f"sync_{c.id}", disabled=running, type="primary"):
             runner.start_background(c.id, f0, f1, tuple(streams))
-            st.toast("Загрузка запущена")
+            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена")
             st.rerun()
         runs = _runs(c.id)
         if not runs.empty:
@@ -258,11 +264,11 @@ def render():
         entities = {e.name: e.id for e in s.scalars(select(LegalEntity).order_by(LegalEntity.name))}
         cabs = s.scalars(select(Cabinet).order_by(Cabinet.marketplace, Cabinet.name)).all()
 
+    _entities_block()
+    st.divider()
     st.subheader("Кабинеты")
     st.caption("Ключи хранятся в базе в зашифрованном виде и нигде не показываются. Достаточно ключей только "
                "на чтение. Данные обновляются каждый день в 06:00 МСК, последние 14 дней перечитываются.")
     for c in cabs:
         _cabinet_card(c, entities)
     _new_cabinet_form(entities)
-    st.divider()
-    _entities_block()

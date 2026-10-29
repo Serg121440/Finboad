@@ -9,11 +9,11 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from core import config
 from core.db import session
-from core.models import Cabinet, LegalEntity, ShareLink, now_msk
+from core.models import Cabinet, LedgerEntry, LegalEntity, ShareLink, SyncRun, now_msk
 from pnl.engine import compute, summarize, NO_SKU
 
 MP_NAMES = {"ozon": "Ozon", "wb": "Wildberries"}
@@ -193,7 +193,7 @@ def sidebar_filters(key: str = "flt") -> Filters | None:
         return None
     with st.sidebar:
         st.subheader("Период и кабинеты")
-        choice = st.selectbox("Период", PERIODS, index=1, key=f"{key}_period")
+        choice = st.selectbox("Период", PERIODS, index=0, key=f"{key}_period")
         d0, d1 = _period(choice)
         if d0 is None:
             rng = st.date_input("Даты", value=(date.today().replace(day=1), date.today() - timedelta(days=1)),
@@ -207,13 +207,63 @@ def sidebar_filters(key: str = "flt") -> Filters | None:
         labels = {cabinet_label(r): r["id"] for _, r in cabs.iterrows()}
         sel = st.multiselect("Кабинеты", list(labels), default=list(labels), key=f"{key}_cabs")
         ids = [labels[x] for x in sel] or list(labels.values())
+        acc = st.session_state.get("access")
+        if acc is not None and acc.owner:
+            _load_block(d0, d1, ids, {v: k for k, v in labels.items()})
     return Filters(d0, d1, ids, cabs)
+
+
+def _loaded_range() -> dict[int, tuple[date, date]]:
+    """cabinet_id -> first and last day with accruals in the database."""
+    with session() as s:
+        return {c: (a, b) for c, a, b in s.execute(
+            select(LedgerEntry.cabinet_id, func.min(LedgerEntry.date), func.max(LedgerEntry.date))
+            .group_by(LedgerEntry.cabinet_id)).all()}
+
+
+@st.fragment(run_every=5)
+def _load_status(ids: list[int]):
+    """While a load runs, poll it; when it finishes, recalculate the whole page."""
+    from sync import runner
+    running = [i for i in ids if runner.is_running(i)]
+    was = st.session_state.get("load_running", False)
+    st.session_state["load_running"] = bool(running)
+    if running:
+        st.caption("⏳ Идёт загрузка из API… Отчёт обновится сам, когда она закончится.")
+    elif was:
+        data_changed()
+        st.rerun(scope="app")
+
+
+def _load_block(d0: date, d1: date, ids: list[int], names: dict[int, str]):
+    """Owner only: what is loaded for the period, and a button to load it from the marketplace APIs."""
+    from sync import runner
+    st.markdown("**Данные из API**")
+    have = _loaded_range()
+    gaps = []
+    for i in ids:
+        a, b = have.get(i, (None, None))
+        st.caption(f"{names[i]}: " + (f"начисления {a:%d.%m.%Y} — {b:%d.%m.%Y}" if a else "ещё не загружены"))
+        if not a or a > d0 or b < min(d1, date.today() - timedelta(days=1)):
+            gaps.append(i)
+    if gaps:
+        st.warning("За часть выбранного периода данных нет — загрузите период.")
+    busy = any(runner.is_running(i) for i in ids)
+    if st.button(f"Загрузить {d0:%d.%m} — {d1:%d.%m}", disabled=busy, use_container_width=True,
+                 help="Начисления, заказы, реклама и товары выбранных кабинетов за период из фильтра. "
+                      "Повторная загрузка периода заменяет его данные."):
+        for i in ids:
+            runner.start_background(i, d0, d1)
+        st.session_state["load_running"] = True
+        st.rerun()
+    _load_status(ids)
 
 
 # ── calculation (cached) ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner="Считаю…")
-def calc(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], _version: int = 0):
+def calc(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = ""):
+    """version changes whenever a load finishes, so new data is never hidden by the cache."""
     from pnl.data import load
     return compute(load(date_from, date_to, list(cabinet_ids)))
 
@@ -224,7 +274,13 @@ def data_changed():
 
 
 def result_for(f: Filters):
-    return calc(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)))
+    return calc(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
+
+
+def data_version() -> str:
+    with session() as s:
+        n, last = s.execute(select(func.count(SyncRun.id), func.max(SyncRun.finished_at))).one()
+    return f"{n}:{last}"
 
 
 def with_names(facts: pd.DataFrame, cabinets: pd.DataFrame, products: pd.DataFrame) -> pd.DataFrame:
