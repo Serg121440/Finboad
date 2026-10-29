@@ -28,7 +28,7 @@ BASES = {
 SHORT_PERIOD_DAYS = 14
 UNIT_LINES = {"price": "Цена", "commission": "Комиссия", "acquiring": "Эквайринг", "logistics": "Логистика",
               "ads": "Реклама", "cogs": "Себестоимость", "profit": "Прибыль"}
-COMMON_LINES = ["ads", "logistics", "storage", "penalties", "services", "other", "commission"]
+COMMON_LINES = ["ads", "logistics", "storage", "penalties", "services", "other", "commission", "vat", "tax"]
 FILTER_KEYS = ("prod_query", "prod_status")
 
 
@@ -88,15 +88,42 @@ def status_of(g: pd.DataFrame) -> pd.Series:
         index=g.index)
 
 
-def reconcile(g: pd.DataFrame) -> pd.DataFrame:
-    """Per cabinet: products + common expenses = cabinet total."""
-    items = g[g["sku"] != NO_SKU].groupby("cabinet", as_index=False)["profit"].sum()
-    common = g[g["sku"] == NO_SKU].groupby("cabinet", as_index=False)["profit"].sum()
-    t = items.merge(common, on="cabinet", how="outer", suffixes=("_items", "_common")).fillna(0)
-    total = g.groupby("cabinet", as_index=False)["profit"].sum().rename(columns={"profit": "total"})
-    t = t.merge(total, on="cabinet")
-    t["diff"] = t["profit_items"] + t["profit_common"] - t["total"]
-    return t
+def _weights(primary: pd.Series, secondary: pd.Series) -> pd.Series | None:
+    for s in (primary, secondary):
+        s = s.clip(lower=0)
+        if s.sum() > 0:
+            return s / s.sum()
+    return None
+
+
+def allocate_common(g: pd.DataFrame) -> pd.DataFrame:
+    """Spread the cabinet's expenses without a product over its products.
+
+    Ad money without a product (Ozon «оплата за заказ — все товары»: a % of the order
+    price, never broken down by SKU) goes by share of ordered sum; everything else
+    (logistics, storage, services without a product) by share of revenue. Adds
+    ads_common and other_common (included in ads and profit); the common row stays
+    only when there is nothing to spread it over."""
+    g = g.copy()
+    g["ads_common"] = 0.0
+    g["other_common"] = 0.0
+    drop = []
+    for _, part in g.groupby("cabinet_id"):
+        com = part[part["sku"] == NO_SKU]
+        items = part[part["sku"] != NO_SKU]
+        if com.empty or items.empty:
+            continue
+        wa = _weights(items["ordered_sum"], items["revenue"])
+        wo = _weights(items["revenue"], items["ordered_sum"])
+        if wa is None or wo is None:
+            continue
+        ads = com["ads"].sum()
+        g.loc[items.index, "ads_common"] = ads * wa
+        g.loc[items.index, "other_common"] = (com["profit"].sum() - ads) * wo
+        drop += list(com.index)
+    g["ads"] = g["ads"] + g["ads_common"]
+    g["profit"] = g["profit"] + g["ads_common"] + g["other_common"]
+    return g.drop(index=drop)
 
 
 def _reset_filters():
@@ -136,6 +163,8 @@ def render():
     g = with_names(g, f.cabinets, res.products)
     nameless = (g["name"] == "") & (g["sku"] != NO_SKU)
     g.loc[nameless, "name"] = "SKU " + g.loc[nameless, "sku"] + " · нет в каталоге"
+    before = g
+    g = allocate_common(g)
     u = unit_economics(g, base)
     g["status"] = status_of(g)
     g["buyout_pct"] = buyout_rate(g) * 100
@@ -173,7 +202,8 @@ def render():
         "Комиссия, ₽": v["commission"] - v["acquiring"], "Эквайринг, ₽": v["acquiring"],
         "Логистика, ₽": v["logistics"],
         "Хранение и прочее, ₽": v["storage"] + v["penalties"] + v["services"] + v["other"],
-        "Реклама, ₽": v["ads"], f"ДРР {to}, %": v["u_drr"] * 100,
+        "Реклама по товару, ₽": v["ads"] - v["ads_common"], "Реклама «все товары», ₽": v["ads_common"],
+        "Общие расходы МП, ₽": v["other_common"], f"ДРР {to}, %": v["u_drr"] * 100,
         "Себестоимость, ₽": v["cogs"], "Налоги, ₽": v["vat"] + v["tax"],
         **{f"{t} {per}, ₽": v[f"u_{k}"] for k, t in UNIT_LINES.items() if k != "profit"},
         "SKU": v["sku"], "Кабинет": v["cabinet"], "МП": v["marketplace"].map(MP_NAMES),
@@ -201,28 +231,36 @@ def render():
         f"нет заказов или только возвраты. От выбора выше зависят колонки «{per}» и «{to}». "
         "«% выкупа заказов» — доставлено / (доставлено + отменено) среди заказов периода; заказы в пути "
         "не учитываются. «только возвраты» — продаж нет, вернули проданное раньше: выручка и комиссия "
-        "сторнируются, себестоимость возвращается. Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. "
+        "сторнируются, себестоимость возвращается. «Реклама «все товары»» и «Общие расходы МП» — расходы "
+        "кабинета без товара, распределённые по товарам (см. ниже); они входят в прибыль и ДРР. Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. "
         "«нет в каталоге» — карточка не найдена в кабинете, название подтянется при следующей загрузке.")
 
-    _reconciliation(g)
+    _reconciliation(before, g)
     st.download_button("Скачать CSV", csv.encode("utf-8-sig"),
                        file_name=f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.csv",
                        mime="text/csv")
 
 
-def _reconciliation(g: pd.DataFrame):
+def _reconciliation(before: pd.DataFrame, after: pd.DataFrame):
     st.subheader("Сверка с итогом кабинета")
-    r = reconcile(g)
-    for _, row in r.iterrows():
-        ok = abs(row["diff"]) < 1
-        st.markdown(f"**{row['cabinet']}**: товары {rub(row['profit_items'])} + общие расходы "
-                    f"{rub(row['profit_common'])} = {rub(row['total'])} — прибыль до постоянных "
-                    + ("✅ сходится" if ok else f"⚠️ расхождение {rub(row['diff'])}"))
-    common = g[g["sku"] == NO_SKU]
-    if common.empty:
-        return
-    parts = common[COMMON_LINES].sum()
-    parts = parts[parts.abs() >= 1].sort_values()
-    st.caption("Общие расходы не делятся по товарам и не входят в прибыль товаров: " +
-               ", ".join(f"{LINE_TITLES[k].lower()} {rub(a)}" for k, a in parts.items()) +
-               ". Реклама здесь — «оплата за заказ: все товары» и прочие кампании без товара.")
+    for cab, part in before.groupby("cabinet"):
+        total = part["profit"].sum()
+        a = after[after["cabinet"] == cab]
+        kept = a[a["sku"] == NO_SKU]["profit"].sum()  # nothing to spread it over
+        items = a[a["sku"] != NO_SKU]["profit"].sum()
+        ok = abs(items + kept - total) < 1
+        com = part[part["sku"] == NO_SKU]
+        parts = com[COMMON_LINES].sum()
+        parts = parts[parts.abs() >= 1].sort_values()
+        spread = ", ".join(f"{LINE_TITLES[k].lower()} {rub(x)}" for k, x in parts.items())
+        rest = f" + не распределено {rub(kept)}" if (a["sku"] == NO_SKU).any() else ""
+        st.markdown(f"**{cab}**: сумма прибыли товаров {rub(items)}{rest} = прибыль до постоянных кабинета "
+                    f"{rub(total)} " + ("✅ сходится" if ok else f"⚠️ расхождение {rub(items + kept - total)}"))
+        if rest:
+            st.caption(f"Не распределено: {spread}. У товаров кабинета нет ни выручки, ни заказов за период — "
+                       "распределять не на что.")
+        elif spread:
+            st.caption(f"Распределено по товарам ({rub(com['profit'].sum())}): {spread}. Реклама без товара "
+                       "(«оплата за заказ — все товары»: Ozon берёт % от цены заказа и не раскладывает его по "
+                       "товарам) — по доле товара в сумме заказов; остальное — по доле в выручке. В ОПиУ и "
+                       "финрезультате эти суммы стоят своими статьями.")

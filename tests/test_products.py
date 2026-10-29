@@ -4,7 +4,7 @@ import pytest
 from datetime import date
 
 from dashboard.quality import find_issues, month_label
-from dashboard.views.products import buyout_rate, reconcile, status_of, unit_economics
+from dashboard.views.products import allocate_common, buyout_rate, status_of, unit_economics
 from pnl.engine import NO_SKU
 
 
@@ -70,12 +70,26 @@ def test_buyout_from_outcomes_ignores_orders_in_transit():
     assert buyout_rate(_row(ordered_qty=10, cancelled_qty=2, unknown_qty=8)).iloc[0] == 0.8
 
 
-def test_no_sales_status_and_reconciliation():
+def test_no_sales_status():
     g = pd.concat([_row(sku="1", profit=100, sold=1, net_qty=1), _row(sku="2", profit=-30, ordered_qty=3),
-                   _row(sku=NO_SKU, profit=-50)], ignore_index=True).assign(cabinet="Ozon · A")
+                   _row(sku=NO_SKU, profit=-50)], ignore_index=True)
     assert list(status_of(g)) == ["прибыль", "нет продаж", "общие расходы"]
-    r = reconcile(g).iloc[0]
-    assert (r["profit_items"], r["profit_common"], r["total"], r["diff"]) == (70, -50, 20, 0)
+
+
+def test_common_expenses_spread_over_products():
+    # «все товары» ads 90 by ordered sum (1:2), other common 10 by revenue (3:1)
+    g = pd.concat([_row(sku="1", revenue=300, profit=100, ordered_sum=100, cabinet_id=1),
+                   _row(sku="2", revenue=100, profit=50, ordered_sum=200, cabinet_id=1),
+                   _row(sku=NO_SKU, ads=-90, logistics=-10, profit=-100, cabinet_id=1)], ignore_index=True)
+    a = allocate_common(g)
+    assert list(a["sku"]) == ["1", "2"]
+    assert list(a["ads_common"]) == [-30, -60]
+    assert list(a["other_common"]) == [-7.5, -2.5]
+    assert list(a["profit"]) == [62.5, -12.5]
+    assert a["profit"].sum() == g["profit"].sum()
+    # nothing to spread over: the common row stays
+    lone = _row(sku=NO_SKU, ads=-5, profit=-5, cabinet_id=2)
+    assert list(allocate_common(lone)["sku"]) == [NO_SKU]
 
 
 def test_quality_issues_mark_result_preliminary():
