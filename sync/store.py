@@ -79,6 +79,28 @@ def upsert_products(cabinet_id: int, products: list[dict]) -> int:
     return len(products)
 
 
+def unknown_skus(cabinet_id: int) -> list[str]:
+    """SKUs with accruals or orders but no product card."""
+    with session() as s:
+        known = set(s.scalars(select(Product.sku).where(Product.cabinet_id == cabinet_id)))
+        used = set(s.scalars(select(LedgerEntry.sku).where(LedgerEntry.cabinet_id == cabinet_id,
+                                                           LedgerEntry.sku.is_not(None)).distinct()))
+        used |= set(s.scalars(select(OrderLine.sku).where(OrderLine.cabinet_id == cabinet_id).distinct()))
+    return sorted(used - known - {""})
+
+
+def posting_of(cabinet_id: int, sku: str) -> str | None:
+    """Any posting number with this SKU: an order first, else an accrual (sale first)."""
+    with session() as s:
+        p = s.scalars(select(OrderLine.posting).where(OrderLine.cabinet_id == cabinet_id, OrderLine.sku == sku,
+                                                      OrderLine.posting != "").limit(1)).first()
+        if not p:
+            p = s.scalars(select(LedgerEntry.posting).where(
+                LedgerEntry.cabinet_id == cabinet_id, LedgerEntry.sku == sku, LedgerEntry.posting != "")
+                .order_by(LedgerEntry.category.in_(["sale", "return"]).desc()).limit(1)).first()
+    return p
+
+
 def upsert_campaigns(cabinet_id: int, campaigns: dict[str, dict]) -> None:
     with session() as s:
         existing = {c.campaign_id: c for c in s.scalars(

@@ -116,6 +116,7 @@ class OrderLine(Base):
     qty = Column(Integer, default=0)
     amount = Column(Float, default=0.0)            # по цене продавца
     cancelled = Column(Boolean, default=False)
+    status = Column(String(40), default="")        # Ozon posting status; "" — неизвестно (WB, старые строки)
     posting = Column(String(80), default="")
     source_key = Column(String(120), nullable=False)
 
@@ -184,6 +185,15 @@ class FixedCost(Base):
     item = Column(String(200), nullable=False)
     amount = Column(Float, nullable=False)         # положительное число — расход
     comment = Column(String(500), default="")
+
+
+class FixedMonth(Base):
+    """Месяц, в котором постоянных расходов нет: отличает «0 ₽» от «не заполнено»."""
+    __tablename__ = "fb_fixed_month"
+
+    id = Column(Integer, primary_key=True)
+    month = Column(Date, nullable=False, unique=True)
+    no_costs = Column(Boolean, default=True)
 
 
 class ShareLink(Base):

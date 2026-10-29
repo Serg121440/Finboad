@@ -83,9 +83,28 @@ class SellerClient:
                 last = j["result"].get("last_id") or ""
                 if not last or not items:
                     break
+        return self._info("product_id", ids)
+
+    def products_by_sku(self, skus: list[str]) -> list[dict]:
+        """Cards the product list doesn't return (e.g. sold under another card's SKU)."""
+        return self._info("sku", [int(s) for s in skus if str(s).isdigit()])
+
+    def posting_products(self, posting: str) -> list[dict]:
+        """[{sku, offer_id, name}] of one posting. Finds SKUs that have no card of their own,
+        e.g. «Уценённый товар» sold under the original offer_id."""
+        for path in ("/v2/posting/fbo/get", "/v3/posting/fbs/get"):
+            try:
+                j = self.post(path, {"posting_number": posting}, retries=1)
+            except Exception:
+                continue
+            return [{"sku": str(p.get("sku")), "offer_id": p.get("offer_id", ""), "name": p.get("name", "")}
+                    for p in (j.get("result") or {}).get("products") or []]
+        return []
+
+    def _info(self, field: str, ids: list) -> list[dict]:
         out = []
         for i in range(0, len(ids), 1000):
-            j = self.post("/v3/product/info/list", {"product_id": ids[i:i + 1000]})
+            j = self.post("/v3/product/info/list", {field: ids[i:i + 1000]})
             for it in j.get("items", []):
                 skus = {str(s["sku"]) for s in it.get("sources") or [] if s.get("sku")}
                 if it.get("sku"):

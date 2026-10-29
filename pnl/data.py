@@ -46,10 +46,10 @@ def load(date_from: date, date_to: date, cabinet_ids: list[int] | None = None) -
     camps = _frame(select(AdCampaign.cabinet_id, AdCampaign.campaign_id, AdCampaign.type, AdCampaign.name)
                    .where(AdCampaign.cabinet_id.in_(tax_ids)), ["cabinet_id", "campaign_id", "type"])
     orders = _frame(select(OrderLine.cabinet_id, OrderLine.date, OrderLine.sku, OrderLine.qty,
-                           OrderLine.amount, OrderLine.cancelled)
+                           OrderLine.amount, OrderLine.cancelled, OrderLine.status)
                     .where(OrderLine.cabinet_id.in_(tax_ids), OrderLine.date >= start,
                            OrderLine.date <= date_to),
-                    ["cabinet_id", "date", "sku", "qty", "amount", "cancelled"])
+                    ["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"])
     prods = _frame(select(Product.cabinet_id, Product.sku, Product.article, Product.name, Product.category,
                           Product.vat10).where(Product.cabinet_id.in_(tax_ids)),
                    ["cabinet_id", "sku", "article", "name", "category", "vat10"])

@@ -240,14 +240,14 @@ def period_filters(key: str = "flt") -> Filters | None:
     return Filters(d0, d1, ids, cabs)
 
 
-def _loaded_intervals() -> dict[int, list[tuple[date, date]]]:
+def _loaded_intervals(streams=("accruals", "report")) -> dict[int, list[tuple[date, date]]]:
     """cabinet_id -> periods whose accruals loaded successfully: API runs and Ozon accrual reports.
 
     A single WB weekly report covers only Russia or only CIS, so it doesn't count."""
     out: dict[int, list[tuple[date, date]]] = {}
     with session() as s:
         for c, a, b in s.execute(select(SyncRun.cabinet_id, SyncRun.date_from, SyncRun.date_to)
-                                 .where(SyncRun.stream.in_(["accruals", "report"]), SyncRun.status == "ok",
+                                 .where(SyncRun.stream.in_(list(streams)), SyncRun.status == "ok",
                                         SyncRun.date_from.is_not(None))):
             out.setdefault(c, []).append((a, b))
     return out

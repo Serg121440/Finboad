@@ -26,6 +26,7 @@ log = logging.getLogger("finboard.sync")
 
 REFRESH_DAYS = 14          # re-read this many recent days on every incremental run
 DEFAULT_HISTORY_DAYS = 90  # first load when the cabinet has no explicit start date
+ORDER_STATUS_DAYS = 45     # orders are re-read this far back daily: delivered / cancelled come later
 _LOCK = threading.Lock()
 _running: set[int] = set()
 _ENTITY_LOCK = threading.Lock()  # find-or-create by INN must not race between cabinets
@@ -93,7 +94,8 @@ def ozon_orders_from_postings(postings: list[dict]) -> list[dict]:
             rows.append({
                 "date": d, "sku": str(pr.get("sku")), "qty": qty,
                 "amount": round(price * qty, 2),
-                "cancelled": cancelled, "posting": p.get("posting_number", ""),
+                "cancelled": cancelled, "status": str(p.get("status") or ""),
+                "posting": p.get("posting_number", ""),
                 "source_key": f"{p.get('posting_number')}:{pr.get('sku')}",
             })
     return rows
@@ -185,6 +187,17 @@ def sync_ozon(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams)
             run.fail(f"{e}\n{traceback.format_exc()}")
             raise
 
+    try:
+        unknown = store.unknown_skus(cab.id)
+        if unknown:
+            store.upsert_products(cab.id, [p for p in seller.products_by_sku(unknown) if p["sku"] in unknown])
+        for sku in store.unknown_skus(cab.id)[:50]:
+            posting = store.posting_of(cab.id, sku)
+            if posting:
+                store.upsert_products(cab.id, [p for p in seller.posting_products(posting) if p["sku"] == sku])
+    except Exception:
+        log.exception("cards for unknown SKUs of cabinet %s", cab.id)
+
     if "ads" in streams and keys.get("perf_client_id") and keys.get("perf_client_secret"):
         run = Run(cab.id, "ads", date_from, date_to)
         try:
@@ -234,7 +247,8 @@ def wb_orders(rows: list[dict], date_from: date, date_to: date) -> list[dict]:
         out.append({
             "date": d, "sku": str(r.get("nmId")), "qty": 1,
             "amount": round(float(r.get("priceWithDisc") or 0), 2),
-            "cancelled": bool(r.get("isCancel")), "posting": r.get("srid", ""),
+            "cancelled": bool(r.get("isCancel")), "status": "cancelled" if r.get("isCancel") else "",
+            "posting": r.get("srid", ""),
             "source_key": str(r.get("srid") or f"{r.get('gNumber')}:{r.get('nmId')}"),
         })
     return out
@@ -355,6 +369,9 @@ def sync_all() -> None:
         for cid in ids:
             try:
                 sync_cabinet(cid)
+                today = date.today()
+                sync_cabinet(cid, today - timedelta(days=ORDER_STATUS_DAYS), today - timedelta(days=1),
+                             streams=("orders",))
             except Exception:
                 log.exception("scheduled sync of cabinet %s failed", cid)
     finally:
