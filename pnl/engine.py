@@ -199,6 +199,10 @@ def fact_table(d: Data) -> pd.DataFrame:
                             fill_value=0, dropna=False).reset_index() if len(led) else pd.DataFrame(columns=keys)
     money.columns.name = None
 
+    # acquiring is part of commission but is charged per order, not per sale
+    acq = led[led["category"] == "acquiring"].groupby(keys, dropna=False, as_index=False)["amount"].sum() \
+        .rename(columns={"amount": "acquiring"})
+
     sales = led[led["category"].isin(["sale", "return"])].copy()
     sales = sales.merge(d.products[["cabinet_id", "sku", "article"]], on=["cabinet_id", "sku"], how="left")
     sales["article"] = sales["article"].fillna("")
@@ -211,8 +215,8 @@ def fact_table(d: Data) -> pd.DataFrame:
         ["sold", "returned", "sales_gross", "cogs", "cost_missing_qty"]].sum()
 
     ads = ads_by_sku(d)
-    f = money.merge(q, on=keys, how="outer").merge(ads, on=keys, how="outer")
-    for c in MONEY_LINES + ["sold", "returned", "sales_gross", "cost_missing_qty"]:
+    f = money.merge(q, on=keys, how="outer").merge(ads, on=keys, how="outer").merge(acq, on=keys, how="outer")
+    for c in MONEY_LINES + ["sold", "returned", "sales_gross", "cost_missing_qty", "acquiring"]:
         if c not in f:
             f[c] = 0.0
         f[c] = f[c].fillna(0.0)
@@ -375,7 +379,7 @@ def compute(d: Data) -> Result:
 
 def summarize(facts: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     cols = MONEY_LINES + ["mp_result", "profit", "sold", "returned", "net_qty", "sales_gross",
-                          "cost_missing_qty"]
+                          "cost_missing_qty", "acquiring"]
     g = facts.groupby(by, dropna=False, as_index=False)[cols].sum()
     rev = g["revenue"].replace(0, np.nan)
     g["margin"] = g["profit"] / rev
