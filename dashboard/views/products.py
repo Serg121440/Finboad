@@ -245,15 +245,21 @@ def _reconciliation(before: pd.DataFrame, after: pd.DataFrame):
     st.subheader("Сверка с итогом кабинета")
     for cab, part in before.groupby("cabinet"):
         total = part["profit"].sum()
-        items = after[after["cabinet"] == cab]["profit"].sum()
-        ok = abs(items - total) < 1
+        a = after[after["cabinet"] == cab]
+        kept = a[a["sku"] == NO_SKU]["profit"].sum()  # nothing to spread it over
+        items = a[a["sku"] != NO_SKU]["profit"].sum()
+        ok = abs(items + kept - total) < 1
         com = part[part["sku"] == NO_SKU]
         parts = com[COMMON_LINES].sum()
         parts = parts[parts.abs() >= 1].sort_values()
         spread = ", ".join(f"{LINE_TITLES[k].lower()} {rub(a)}" for k, a in parts.items())
-        st.markdown(f"**{cab}**: сумма прибыли товаров {rub(items)} = прибыль до постоянных кабинета {rub(total)} "
-                    + ("✅ сходится" if ok else f"⚠️ расхождение {rub(items - total)}"))
-        if spread:
+        rest = f" + не распределено {rub(kept)}" if (a["sku"] == NO_SKU).any() else ""
+        st.markdown(f"**{cab}**: сумма прибыли товаров {rub(items)}{rest} = прибыль до постоянных кабинета "
+                    f"{rub(total)} " + ("✅ сходится" if ok else f"⚠️ расхождение {rub(items + kept - total)}"))
+        if rest:
+            st.caption(f"Не распределено: {spread}. У товаров кабинета нет ни выручки, ни заказов за период — "
+                       "распределять не на что.")
+        elif spread:
             st.caption(f"Распределено по товарам ({rub(com['profit'].sum())}): {spread}. Реклама без товара "
                        "(«оплата за заказ — все товары»: Ozon берёт % от цены заказа и не раскладывает его по "
                        "товарам) — по доле товара в сумме заказов; остальное — по доле в выручке. В ОПиУ и "
