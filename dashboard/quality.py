@@ -43,12 +43,18 @@ def month_label(m: date, d0: date, d1: date) -> str:
 
 
 def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame, d0: date, d1: date,
-                filled_months: set[date], missing_by_cabinet: dict[str, int]) -> list[Issue]:
-    """cabinets: the selected ones (id, name, entity_id)."""
+                filled_months: set[date], missing_by_cabinet: dict[str, int],
+                ads_missing_by_cabinet: dict[str, int] | None = None) -> list[Issue]:
+    """cabinets: the selected ones (id, name, entity_id). ads_missing_by_cabinet: WB only — its ads
+    come from the ad cabinet, not from accruals."""
     out = []
     for name, miss in missing_by_cabinet.items():
         if miss:
             out.append(Issue(f"{name}: не загружено дней в периоде — {miss}", "кнопка «Загрузить» выше"))
+    for name, miss in (ads_missing_by_cabinet or {}).items():
+        if miss:
+            out.append(Issue(f"{name}: реклама не загружена за дней — {miss}, расходы занижены",
+                             "кнопка «Загрузить» выше"))
     if not facts.empty:
         m = facts[facts["cost_missing_qty"] != 0]
         if not m.empty:
@@ -86,12 +92,16 @@ def filled_fixed_months(d0: date, d1: date) -> set[date]:
 def issues_for(f, res) -> list[Issue]:
     from dashboard.common import _loaded_intervals, cabinet_label, missing_days
     cabs = f.cabinets[f.cabinets["id"].isin(f.cabinet_ids)]
-    have = _loaded_intervals()
     end = min(f.date_to, date.today() - timedelta(days=1))
-    miss = {cabinet_label(r): missing_days(have.get(int(r["id"]), []), f.date_from, end) if f.date_from <= end else 0
-            for _, r in cabs.iterrows()}
+
+    def missing(have, rows):
+        return {cabinet_label(r): missing_days(have.get(int(r["id"]), []), f.date_from, end)
+                if f.date_from <= end else 0 for _, r in rows.iterrows()}
+
+    miss = missing(_loaded_intervals(), cabs)
+    ads_miss = missing(_loaded_intervals(("ads",)), cabs[cabs["marketplace"] == "wb"])
     return find_issues(res.facts, res.taxes, cabs, f.date_from, f.date_to,
-                       filled_fixed_months(f.date_from, f.date_to), miss)
+                       filled_fixed_months(f.date_from, f.date_to), miss, ads_miss)
 
 
 def quality_block(f, res) -> list[Issue]:

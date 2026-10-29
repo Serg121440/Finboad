@@ -93,3 +93,13 @@ def test_quality_issues_mark_result_preliminary():
     assert [i.text for i in filled if i.blocking] == ["Налог не считается: Перфетто — нет юрлица или "
                                                        "налогового режима"]
     assert month_label(date(2026, 9, 1), date(2026, 9, 1), date(2026, 9, 30)) == "Сентябрь 2026"
+
+
+def test_wb_ads_gap_keeps_result_preliminary():
+    facts = pd.DataFrame({"sku": ["1"], "cost_missing_qty": [0]})
+    cabs = pd.DataFrame({"id": [2], "name": ["ВБ"], "entity_id": [7]})
+    taxes = pd.DataFrame({"entity_id": [7], "month": [date(2026, 9, 1)], "note": [""]})
+    issues = find_issues(facts, taxes, cabs, date(2026, 9, 1), date(2026, 9, 30), {date(2026, 9, 1)},
+                         {"Wildberries · ВБ": 0}, {"Wildberries · ВБ": 30})
+    assert [i.text for i in issues if i.blocking] == ["Wildberries · ВБ: реклама не загружена за дней — 30, "
+                                                       "расходы занижены"]
