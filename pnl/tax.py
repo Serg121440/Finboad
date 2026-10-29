@@ -18,6 +18,20 @@ REGIMES = {
     "NONE": "Без налога (не считать)",
 }
 
+def regime_from_marketplace(tax_system: str | None, kind: str) -> str | None:
+    """Our regime for the tax system a marketplace has on file (e.g. Ozon «OSNO»); None if unclear."""
+    t = (tax_system or "").upper()
+    if not t:
+        return None
+    if "AUSN" in t:
+        return "AUSN_DR" if ("EXP" in t or "MINUS" in t) else "AUSN_D"
+    if "USN" in t:
+        return "USN_DR" if ("EXP" in t or "MINUS" in t) else "USN_D"
+    if "OSNO" in t or "OSN" in t:
+        return "OSNO_OOO" if kind == "ooo" else "OSNO_IP"
+    return None
+
+
 VAT_MODES = {
     "auto": "Автоматически по порогам 2026 (УСН)",
     "exempt": "Освобождение от НДС",

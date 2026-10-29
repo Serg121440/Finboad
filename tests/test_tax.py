@@ -43,3 +43,12 @@ def test_osno_ooo_vat_with_deductions_and_profit_tax():
 def test_ausn_income_minus_expenses_minimum_3_percent():
     res = compute_entity_year("AUSN_DR", months([1_000_000], mp_costs=990_000))
     assert res[0].tax == pytest.approx(30_000)
+
+
+def test_regime_from_marketplace():
+    from pnl.tax import regime_from_marketplace
+    assert regime_from_marketplace("OSNO", "ooo") == "OSNO_OOO"
+    assert regime_from_marketplace("OSNO", "ip") == "OSNO_IP"
+    assert regime_from_marketplace("USN_INCOME", "ip") == "USN_D"
+    assert regime_from_marketplace("USN_INCOME_MINUS_EXPENSES", "ooo") == "USN_DR"
+    assert regime_from_marketplace("", "ooo") is None

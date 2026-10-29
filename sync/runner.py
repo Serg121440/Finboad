@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from core.crypto import decrypt
 from core.db import session
-from core.models import Cabinet, SyncRun, now_msk
+from core.models import Cabinet, LegalEntity, SyncRun, now_msk
 from pnl import ozon as ozon_pnl
 from pnl import wb as wb_pnl
 from sources.ozon_api import PerformanceClient, SellerClient
@@ -98,9 +98,35 @@ def ozon_orders_from_postings(postings: list[dict]) -> list[dict]:
     return rows
 
 
+def ensure_entity(cabinet_id: int, seller: SellerClient) -> int | None:
+    """Link an Ozon cabinet without a legal entity to its company from seller info
+    (found by INN or created). Returns the entity id."""
+    with session() as s:
+        cab = s.get(Cabinet, cabinet_id)
+        if cab.entity_id:
+            return cab.entity_id
+        co = seller.seller_info()
+        inn = str(co.get("inn") or "").strip()
+        if not inn:
+            return None
+        ent = s.scalars(select(LegalEntity).where(LegalEntity.inn == inn)).first()
+        if ent is None:
+            ent = LegalEntity(name=co.get("legal_name") or co.get("name") or inn, inn=inn,
+                              kind="ooo" if co.get("ownership_form") == "ООО" or len(inn) == 10 else "ip",
+                              mp_tax_system=co.get("tax_system") or None)
+            s.add(ent)
+            s.flush()
+        cab.entity_id = ent.id
+        return ent.id
+
+
 def sync_ozon(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams) -> dict:
     seller = SellerClient(keys["client_id"], keys["api_key"])
     result = {}
+    try:
+        ensure_entity(cab.id, seller)
+    except Exception:
+        log.exception("seller info for cabinet %s", cab.id)
 
     if "products" in streams:
         run = Run(cab.id, "products", date_from, date_to)

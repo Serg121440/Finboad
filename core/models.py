@@ -30,6 +30,7 @@ class LegalEntity(Base):
     name = Column(String(200), nullable=False)
     kind = Column(String(10), nullable=False, default="ip")  # ip | ooo
     inn = Column(String(20), default="")
+    mp_tax_system = Column(String(40))   # regime the marketplace has on file (Ozon seller info), a hint
     created_at = Column(DateTime, default=now_msk)
 
 
