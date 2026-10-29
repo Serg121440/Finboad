@@ -28,6 +28,7 @@ REFRESH_DAYS = 14          # re-read this many recent days on every incremental 
 DEFAULT_HISTORY_DAYS = 90  # first load when the cabinet has no explicit start date
 _LOCK = threading.Lock()
 _running: set[int] = set()
+_ENTITY_LOCK = threading.Lock()  # find-or-create by INN must not race between cabinets
 _ctx = threading.local()  # .trigger: "auto" for the daily schedule, else "manual"
 
 
@@ -98,17 +99,21 @@ def ozon_orders_from_postings(postings: list[dict]) -> list[dict]:
     return rows
 
 
-def ensure_entity(cabinet_id: int, seller: SellerClient) -> int | None:
-    """Link an Ozon cabinet without a legal entity to its company from seller info
-    (found by INN or created). Returns the entity id."""
+def ensure_entity(cabinet_id: int, seller: SellerClient, relink: bool = False) -> int | None:
+    """Link an Ozon cabinet to its company from seller info (found by INN or created).
+
+    Loads only fill a missing link; relink=True (the user asked) replaces an existing one.
+    Returns the entity id."""
     with session() as s:
+        current = s.get(Cabinet, cabinet_id).entity_id
+    if current and not relink:
+        return current
+    co = seller.seller_info()
+    inn = str(co.get("inn") or "").strip()
+    if not inn:
+        return None
+    with _ENTITY_LOCK, session() as s:
         cab = s.get(Cabinet, cabinet_id)
-        if cab.entity_id:
-            return cab.entity_id
-        co = seller.seller_info()
-        inn = str(co.get("inn") or "").strip()
-        if not inn:
-            return None
         ent = s.scalars(select(LegalEntity).where(LegalEntity.inn == inn)).first()
         if ent is None:
             ent = LegalEntity(name=co.get("legal_name") or co.get("name") or inn, inn=inn,

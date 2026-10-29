@@ -233,7 +233,8 @@ def _cabinet_card(c: Cabinet, entities: dict):
                                                         type="primary"):
                     try:
                         keys = decrypt(c.secrets)
-                        runner.ensure_entity(c.id, runner.SellerClient(keys["client_id"], keys["api_key"]))
+                        runner.ensure_entity(c.id, runner.SellerClient(keys["client_id"], keys["api_key"]),
+                                            relink=True)
                     except Exception as ex:
                         st.error(f"Ozon не отдал реквизиты: {ex}")
                     else:
