@@ -214,7 +214,9 @@ def sidebar_filters(key: str = "flt") -> Filters | None:
 
 
 def _loaded_intervals() -> dict[int, list[tuple[date, date]]]:
-    """cabinet_id -> periods whose accruals loaded successfully (API runs and uploaded reports)."""
+    """cabinet_id -> periods whose accruals loaded successfully: API runs and Ozon accrual reports.
+
+    A single WB weekly report covers only Russia or only CIS, so it doesn't count."""
     out: dict[int, list[tuple[date, date]]] = {}
     with session() as s:
         for c, a, b in s.execute(select(SyncRun.cabinet_id, SyncRun.date_from, SyncRun.date_to)

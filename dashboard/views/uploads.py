@@ -58,8 +58,9 @@ def render():
                 ledger = wb_pnl.rows_to_ledger(rows)
                 n = store.replace_ledger_keys(int(cab["id"]), [f"{no}:"], ledger, source="xlsx")
                 if ledger:
+                    # one of the week's reports (Russia or CIS): logged, but not counted as full coverage
                     days = [r["date"] for r in ledger]
-                    Run(int(cab["id"]), "report", min(days), max(days)).done(n, f"отчёт №{no}")
+                    Run(int(cab["id"]), "wb_report", min(days), max(days)).done(n, f"отчёт №{no}")
                 store.upsert_products(int(cab["id"]), list(wb_pnl.products_from_rows(rows).values()))
                 st.success(f"Отчёт №{no}: строк {n}, итог {rub(sum(r['amount'] for r in ledger))}")
             data_changed()

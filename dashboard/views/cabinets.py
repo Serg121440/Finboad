@@ -16,7 +16,7 @@ from sync import runner
 
 KIND = {"ip": "ИП", "ooo": "ООО"}
 STREAM = {"products": "товары", "accruals": "начисления", "orders": "заказы", "ads": "реклама"}
-RUN_NAMES = STREAM | {"report": "отчёт xlsx"}
+RUN_NAMES = STREAM | {"report": "отчёт xlsx", "wb_report": "отчёт WB xlsx"}
 
 
 # ── legal entities and taxes ─────────────────────────────────────────────────
