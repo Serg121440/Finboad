@@ -19,7 +19,7 @@ def _row(**kw):
 def test_order_base_scales_sale_unit_by_kept_orders():
     # 10 sold for 10 000, profit 2 000 → 200 per sale; 4 of 20 orders cancelled → 160 per order
     g = _row(revenue=10000, profit=2000, ads=-400, sold=10, net_qty=10, sales_gross=10000,
-             ordered_qty=20, ordered_sum=21000, cancelled_qty=4)
+             ordered_qty=20, ordered_sum=21000, cancelled_qty=4, unknown_qty=16)
     u = unit_economics(g, "Заказы").iloc[0]
     assert u["price"] == 1050
     assert u["ads"] == -20                      # ads go straight to orders
@@ -63,6 +63,9 @@ def test_wb_acquiring_split_keeps_total():
 def test_buyout_from_outcomes_ignores_orders_in_transit():
     g = _row(ordered_qty=10, delivered_qty=6, cancelled_qty=2, transit_qty=2)
     assert buyout_rate(g).iloc[0] == 0.75
+    # cancellations and transit only: nothing bought out yet, not «share not cancelled»
+    assert buyout_rate(_row(ordered_qty=10, cancelled_qty=2, transit_qty=8)).iloc[0] == 0
+    assert pd.isna(buyout_rate(_row(ordered_qty=3, transit_qty=3)).iloc[0])
     # no statuses stored yet: share not cancelled
     assert buyout_rate(_row(ordered_qty=10, cancelled_qty=2, unknown_qty=8)).iloc[0] == 0.8
 

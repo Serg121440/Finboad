@@ -33,12 +33,12 @@ FILTER_KEYS = ("prod_query", "prod_status")
 
 
 def buyout_rate(g: pd.DataFrame) -> pd.Series:
-    """Share of the period's orders that were bought out, among orders with a known outcome.
-    Without statuses (WB, old loads) — share of orders not cancelled."""
+    """Share of the period's orders that were bought out, among orders with a known outcome
+    (all in transit — unknown yet). Without statuses (WB, old loads) — share of orders not cancelled."""
     resolved = g["delivered_qty"] + g["cancelled_qty"]
-    known = g["delivered_qty"] / resolved.where((resolved > 0) & (g["delivered_qty"] > 0))
+    known = g["delivered_qty"] / resolved.replace(0, np.nan)
     fallback = (g["ordered_qty"] - g["cancelled_qty"]) / g["ordered_qty"].replace(0, np.nan)
-    return known.fillna(fallback)
+    return known.where(g["unknown_qty"] == 0, fallback)
 
 
 def unit_economics(g: pd.DataFrame, base: str) -> pd.DataFrame:
