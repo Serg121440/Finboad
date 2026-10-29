@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from core.crypto import SecretMissing, decrypt, encrypt, mask
 from core.db import session
 from core.models import Cabinet, LegalEntity, SyncRun, TaxSetting, now_msk
-from dashboard.common import MP_NAMES, data_changed
+from dashboard.common import MP_NAMES, data_changed, show_period
 from pnl.tax import REGIMES, VAT_MODES, regime_from_marketplace
 from sync import runner
 
@@ -267,8 +267,8 @@ def _cabinet_card(c: Cabinet, entities: dict):
                 _show_report(json.loads(c.key_report))
 
         st.markdown("**Загрузить историю**")
-        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а период из отчёта можно загрузить "
-                   "кнопкой в боковой панели отчёта. Здесь — первая загрузка или перезагрузка отдельных данных.")
+        st.caption("Обычно не нужно: новые дни грузятся каждое утро, а нужный период загружается кнопкой "
+                   "«Загрузить» над любым отчётом. Здесь — первая загрузка или перезагрузка отдельных данных.")
         d1, d2, d3, d4 = st.columns([1, 1, 2, 1])
         f0 = d1.date_input("с", value=date.today() - timedelta(days=30), format="DD.MM.YYYY", key=f"f0_{c.id}")
         f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}",
@@ -277,7 +277,8 @@ def _cabinet_card(c: Cabinet, entities: dict):
                                  key=f"st_{c.id}")
         if d4.button("Загрузить", key=f"sync_{c.id}", disabled=running, type="primary"):
             runner.start_background(c.id, f0, f1, tuple(streams))
-            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена")
+            show_period(f0, f1)
+            st.toast(f"Загрузка {f0:%d.%m.%Y} — {f1:%d.%m.%Y} запущена; отчёты откроются на этом периоде")
             st.rerun()
         runs = _runs(c.id)
         if not runs.empty:

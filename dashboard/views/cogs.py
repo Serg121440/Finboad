@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from core.db import session
 from core.crypto import decrypt
 from core.models import Cabinet, CostOfGoods, LedgerEntry, Product
-from dashboard.common import cabinets_df, cabinet_label, data_changed, sidebar_filters, result_for, with_names
+from dashboard.common import cabinets_df, cabinet_label, data_changed, period_filters, result_for, with_names
 from pnl.wb import normalize_article
 from sources.ozon_api import SellerClient
 
@@ -315,7 +315,7 @@ def render():
     _card_block(prods, current, view, labels)
 
     st.subheader("Продавались без себестоимости")
-    f = sidebar_filters()
+    f = period_filters()
     if f is None:
         return
     res = result_for(f)

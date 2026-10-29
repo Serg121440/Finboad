@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, num, pct, result_for, rub, sidebar_filters, summarize, hide_cogs_columns,
+    MP_NAMES, num, pct, result_for, rub, period_filters, summarize, hide_cogs_columns,
 )
 from dashboard.theme import kpi_card, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
 
@@ -58,8 +58,8 @@ def _show(table: pd.DataFrame):
 
 
 def render():
-    f = sidebar_filters()
     st.title("Финансовый результат")
+    f = period_filters()
     if f is None:
         st.info("Кабинетов пока нет. Добавьте кабинет на странице «Кабинеты и налоги» — данные загрузятся по API.")
         return

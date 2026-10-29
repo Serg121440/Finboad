@@ -187,29 +187,56 @@ class Filters:
     cabinets: pd.DataFrame
 
 
-def sidebar_filters(key: str = "flt") -> Filters | None:
+def _remembered(key: str, default, valid=None):
+    """Widget state that survives switching pages (Streamlit drops it for widgets not on the page)."""
+    if key not in st.session_state:
+        v = st.session_state.get(f"keep_{key}", default)
+        st.session_state[key] = v if valid is None or valid(v) else default
+
+
+def _keep(key: str):
+    st.session_state[f"keep_{key}"] = st.session_state[key]
+
+
+def show_period(d0: date, d1: date, key: str = "flt"):
+    """Make every report open on this period (e.g. right after loading it)."""
+    st.session_state[f"keep_{key}_period"] = "Свой период"
+    st.session_state[f"keep_{key}_range"] = (d0, d1)
+    for k in (f"{key}_period", f"{key}_range"):
+        st.session_state.pop(k, None)
+
+
+def period_filters(key: str = "flt") -> Filters | None:
+    """Period and cabinets on top of a report, shared by all report pages; the owner also sees
+    which days are loaded and can load the period from the marketplace APIs."""
     cabs = cabinets_df()
     if cabs.empty:
         return None
-    with st.sidebar:
-        st.subheader("Период и кабинеты")
-        choice = st.selectbox("Период", PERIODS, index=0, key=f"{key}_period")
+    labels = {cabinet_label(r): r["id"] for _, r in cabs.iterrows()}
+    month = (date.today().replace(day=1), max(date.today().replace(day=1), date.today() - timedelta(days=1)))
+    _remembered(f"{key}_period", PERIODS[0], lambda v: v in PERIODS)
+    _remembered(f"{key}_range", month, lambda v: isinstance(v, tuple) and len(v) == 2)
+    _remembered(f"{key}_cabs", list(labels), lambda v: all(x in labels for x in v))
+    acc = st.session_state.get("access")
+    owner = acc is not None and acc.owner
+    with st.container(border=True):
+        c1, c2, c3, c4 = st.columns([1.3, 1.6, 2.2, 1.4] if owner else [1.3, 1.6, 3.6, 0.01],
+                                    vertical_alignment="bottom")
+        choice = c1.selectbox("Период", PERIODS, key=f"{key}_period", on_change=_keep, args=(f"{key}_period",))
         d0, d1 = _period(choice)
         if d0 is None:
-            rng = st.date_input("Даты", value=(date.today().replace(day=1), date.today() - timedelta(days=1)),
-                                format="DD.MM.YYYY", key=f"{key}_range")
-            if isinstance(rng, tuple) and len(rng) == 2:
-                d0, d1 = rng
-            else:
+            rng = c2.date_input("Даты", format="DD.MM.YYYY", key=f"{key}_range", on_change=_keep,
+                                args=(f"{key}_range",))
+            if not (isinstance(rng, tuple) and len(rng) == 2):
+                st.caption("Выберите вторую дату периода.")
                 st.stop()
+            d0, d1 = rng
         else:
-            st.caption(f"{d0:%d.%m.%Y} — {d1:%d.%m.%Y}")
-        labels = {cabinet_label(r): r["id"] for _, r in cabs.iterrows()}
-        sel = st.multiselect("Кабинеты", list(labels), default=list(labels), key=f"{key}_cabs")
+            c2.date_input("Даты", value=(d0, d1), format="DD.MM.YYYY", disabled=True, key=f"{key}_ro_{choice}")
+        sel = c3.multiselect("Кабинеты", list(labels), key=f"{key}_cabs", on_change=_keep, args=(f"{key}_cabs",))
         ids = [labels[x] for x in sel] or list(labels.values())
-        acc = st.session_state.get("access")
-        if acc is not None and acc.owner:
-            _load_block(d0, d1, ids, {v: k for k, v in labels.items()})
+        if owner:
+            _load_block(c4, d0, d1, ids, {v: k for k, v in labels.items()})
     return Filters(d0, d1, ids, cabs)
 
 
@@ -257,29 +284,30 @@ def _load_status(ids: list[int]):
         st.rerun(scope="app")
 
 
-def _load_block(d0: date, d1: date, ids: list[int], names: dict[int, str]):
-    """Owner only: what is loaded for the period, and a button to load it from the marketplace APIs."""
+def _load_block(col, d0: date, d1: date, ids: list[int], names: dict[int, str]):
+    """Which days are loaded per cabinet, and a button to load the selected period."""
     from sync import runner
-    st.markdown("**Данные из API**")
     have = _loaded_intervals()
     end = min(d1, date.today() - timedelta(days=1))
-    gaps = False
+    notes, gaps = [], False
     for i in ids:
         spans = merge_intervals(have.get(i, []))
         miss = missing_days(spans, d0, end) if d0 <= end else 0
         gaps |= miss > 0
         text = ", ".join(f"{a:%d.%m}–{b:%d.%m.%y}" for a, b in spans[-3:]) or "ещё не загружены"
-        st.caption(f"{names[i]}: начисления {text}" + (f" · не загружено дней в периоде: {miss}" if miss else ""))
-    if gaps:
-        st.warning("За часть выбранного периода данных нет — загрузите период.")
+        notes.append(f"{names[i]}: загружено {text}" + (f" · в периоде не хватает дней: {miss}" if miss else ""))
     busy = any(runner.is_running(i) for i in ids)
-    if st.button(f"Загрузить {d0:%d.%m} — {d1:%d.%m}", disabled=busy, use_container_width=True,
-                 help="Начисления, заказы, реклама и товары выбранных кабинетов за период из фильтра. "
-                      "Повторная загрузка периода заменяет его данные."):
+    if col.button(f"Загрузить {d0:%d.%m} — {d1:%d.%m}", disabled=busy, use_container_width=True,
+                  type="primary" if gaps else "secondary",
+                  help="Начисления, заказы, реклама и товары выбранных кабинетов за этот период из API. "
+                       "Повторная загрузка заменяет данные периода."):
         for i in ids:
             runner.start_background(i, d0, d1)
         st.session_state["load_running"] = True
         st.rerun()
+    st.caption(" · ".join(notes))
+    if gaps:
+        st.warning("За часть периода данных нет — нажмите «Загрузить», отчёт обновится сам.")
     _load_status(ids)
 
 
@@ -330,6 +358,6 @@ def hide_cogs_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-__all__ = ["rub", "pct", "num", "require_access", "access", "sidebar_filters", "result_for",
+__all__ = ["rub", "pct", "num", "require_access", "access", "period_filters", "result_for",
            "with_names", "summarize", "data_changed", "cabinets_df", "cabinet_label", "MP_NAMES",
            "hide_cogs_columns", "new_share_token", "hash_token", "Filters"]
