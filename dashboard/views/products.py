@@ -252,7 +252,7 @@ def _reconciliation(before: pd.DataFrame, after: pd.DataFrame):
         com = part[part["sku"] == NO_SKU]
         parts = com[COMMON_LINES].sum()
         parts = parts[parts.abs() >= 1].sort_values()
-        spread = ", ".join(f"{LINE_TITLES[k].lower()} {rub(a)}" for k, a in parts.items())
+        spread = ", ".join(f"{LINE_TITLES[k].lower()} {rub(x)}" for k, x in parts.items())
         rest = f" + не распределено {rub(kept)}" if (a["sku"] == NO_SKU).any() else ""
         st.markdown(f"**{cab}**: сумма прибыли товаров {rub(items)}{rest} = прибыль до постоянных кабинета "
                     f"{rub(total)} " + ("✅ сходится" if ok else f"⚠️ расхождение {rub(items + kept - total)}"))
