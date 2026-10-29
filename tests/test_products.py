@@ -40,3 +40,17 @@ def test_returns_only_is_not_a_loss():
     assert list(status_of(g)) == ["только возвраты", "убыток", "общие расходы"]
     # no per-unit numbers from negative units
     assert unit_economics(g, "Выкупы")["profit"].isna().iloc[0]
+
+
+def test_wb_acquiring_split_keeps_total():
+    from pnl.wb import rows_to_ledger
+    rows = [{"rr_dt": "2026-10-01", "nm_id": 1, "supplier_oper_name": "Продажа", "quantity": 1,
+             "retail_price_withdisc_rub": 1000, "ppvz_for_pay": 700, "acquiring_fee": 15},
+            {"rr_dt": "2026-10-02", "nm_id": 1, "supplier_oper_name": "Возврат", "quantity": 1,
+             "retail_price_withdisc_rub": 1000, "ppvz_for_pay": 700, "acquiring_fee": 15}]
+    led = pd.DataFrame(rows_to_ledger(rows)).astype({"date": str})
+    by = led.groupby(["date", "category"])["amount"].sum()
+    assert by[("2026-10-01", "acquiring")] == -15
+    assert by[("2026-10-01", "commission")] == -285
+    assert by[("2026-10-02", "acquiring")] == 15
+    assert led["amount"].sum() == 0

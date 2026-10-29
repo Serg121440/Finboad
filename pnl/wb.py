@@ -27,6 +27,7 @@ FIELDS = {
     "price_with_disc": ("retail_price_withdisc_rub", "retailPriceWithDisc",
                         "Цена розничная с учетом согласованной скидки"),
     "for_pay": ("ppvz_for_pay", "forPay", "К перечислению Продавцу за реализованный Товар"),
+    "acquiring": ("acquiring_fee", "acquiringFee", "Эквайринг/Комиссии за организацию платежей"),
     "delivery": ("delivery_rub", "deliveryService", "Услуги по доставке товара покупателю"),
     "penalty": ("penalty", "Общая сумма штрафов"),
     "storage": ("storage_fee", "paidStorage", "Хранение"),
@@ -125,14 +126,17 @@ def rows_to_ledger(rows: list[dict], key_prefix: str = "") -> list[dict]:
             sg = 1 if oper in SALE_OPERS else -1
             revenue = sg * price * qty
             add("sale" if sg > 0 else "return", revenue, sg * qty)
-            add("commission", sg * for_pay - revenue)
+            # «К перечислению» is net of both: split acquiring out of the commission
+            acquiring = sg * _f(r["acquiring"])
+            add("commission", sg * for_pay - revenue + acquiring)
+            add("acquiring", -acquiring)
         elif for_pay:
             sg = -1 if doc == "Возврат" else 1
             low = oper.lower()
             if "лояльност" in low or "баллов" in low:
                 add("loyalty", sg * for_pay)
             elif "эквайринг" in low:
-                add("commission", sg * for_pay)
+                add("acquiring", sg * for_pay)
             else:
                 add("compensation", sg * for_pay)
 
