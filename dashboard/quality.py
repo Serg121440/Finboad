@@ -67,7 +67,10 @@ def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame
                          " — нет юрлица или налогового режима", "«Кабинеты и налоги»"))
     if not taxes.empty:
         for _, r in taxes[taxes["note"].fillna("") != ""].iterrows():
-            out.append(Issue(f"Налоги, {pd.Timestamp(r['month']):%m.%Y}: {r['note']}", blocking=False))
+            # a month before the entity's first tax setting: the tax is simply missing
+            missing = "не считается" in r["note"]
+            out.append(Issue(f"Налоги, {pd.Timestamp(r['month']):%m.%Y}: {r['note']}",
+                             "«Кабинеты и налоги»" if missing else "", blocking=missing))
     empty = [m for m in months_of(d0, d1) if m not in filled_months]
     if empty:
         out.append(Issue("Постоянные расходы не заполнены: " + ", ".join(f"{m:%m.%Y}" for m in empty) +

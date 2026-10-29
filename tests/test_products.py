@@ -103,3 +103,13 @@ def test_wb_ads_gap_keeps_result_preliminary():
                          {"Wildberries · ВБ": 0}, {"Wildberries · ВБ": 30})
     assert [i.text for i in issues if i.blocking] == ["Wildberries · ВБ: реклама не загружена за дней — 30, "
                                                        "расходы занижены"]
+
+
+def test_month_without_tax_setting_is_blocking():
+    facts = pd.DataFrame({"sku": ["1"], "cost_missing_qty": [0]})
+    cabs = pd.DataFrame({"id": [1], "name": ["A"], "entity_id": [7]})
+    taxes = pd.DataFrame({"entity_id": [7, 7], "month": [date(2026, 9, 1), date(2026, 10, 1)],
+                          "note": ["налог не считается", ""]})
+    issues = find_issues(facts, taxes, cabs, date(2026, 9, 1), date(2026, 10, 31),
+                         {date(2026, 9, 1), date(2026, 10, 1)}, {})
+    assert [i.text for i in issues if i.blocking] == ["Налоги, 09.2026: налог не считается"]
