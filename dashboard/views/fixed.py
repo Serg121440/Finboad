@@ -7,7 +7,7 @@ import streamlit as st
 from sqlalchemy import and_, delete, select
 
 from core.db import session
-from core.models import FixedCost, LegalEntity
+from core.models import FixedCost, FixedMonth, LegalEntity
 from dashboard.common import cabinets_df, cabinet_label, data_changed, rub
 
 NOBODY = "—"
@@ -61,6 +61,20 @@ def render():
             "Кабинет": st.column_config.SelectboxColumn(options=[NOBODY] + list(cab_labels), default=NOBODY),
         })
     st.metric("Итого за месяц", rub(pd.to_numeric(edited["Сумма, ₽"], errors="coerce").fillna(0).sum()))
+    with session() as s:
+        marked = s.scalars(select(FixedMonth).where(FixedMonth.month == month)).first()
+        none_now = bool(marked and marked.no_costs)
+    none = st.checkbox(f"В {month:%m.%Y} постоянных расходов нет", value=none_now, disabled=not df.empty,
+                       key=f"fixed_none_{month}",
+                       help="Без статей и без этой отметки отчёты пишут «постоянные расходы не заполнены» "
+                            "и показывают результат как предварительный.")
+    if none != none_now:
+        with session() as s:
+            m = s.scalars(select(FixedMonth).where(FixedMonth.month == month)).first() or FixedMonth(month=month)
+            m.no_costs = none
+            s.add(m)
+        data_changed()
+        st.rerun()
 
     c1, c2 = st.columns(2)
     if c1.button("Сохранить", type="primary"):

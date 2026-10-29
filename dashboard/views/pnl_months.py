@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, hide_cogs_columns
+from dashboard.quality import month_label, quality_block
 from pnl.engine import LINE_TITLES
 
 LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services", "other", "ads",
@@ -28,6 +29,7 @@ def render():
         st.warning("За период нет данных.")
         return
 
+    quality_block(f, res)
     g = summarize(facts, ["month"]).sort_values("month")
     fx = res.fixed
     if not fx.empty:
@@ -43,7 +45,7 @@ def render():
     titles = {**LINE_TITLES, "fixed": "Постоянные расходы", "net": "Чистая прибыль",
               "margin": "Маржинальность", "drr": "ДРР"}
     order = LINES + ["fixed", "net", "margin", "drr"]
-    months = [pd.Timestamp(m).strftime("%m.%Y") for m in g["month"]]
+    months = [month_label(pd.Timestamp(m).date(), f.date_from, f.date_to) for m in g["month"]]
     table = pd.DataFrame(index=[titles[k] for k in order])
     for m, (_, row) in zip(months, g.iterrows()):
         table[m] = [pct(row[k]) if k in ("margin", "drr") else rub(row[k]) for k in order]
@@ -54,8 +56,11 @@ def render():
     t = hide_cogs_columns(table.T).T.reset_index().rename(columns={"index": "Статья"})
     st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
                  column_config={"Статья": st.column_config.TextColumn(width="large")})
-    st.caption("Месяц, попавший в период частично, показан только за дни периода. Постоянные расходы такого "
-               "месяца пропорциональны числу дней.")
+    if any("неполный" in m for m in months) and len(months) > 1:
+        st.warning("В таблице месяцы разной длины: неполный месяц сравнивайте с другими по средним за день, "
+                   "а не по сумме.")
+    st.caption("Неполный месяц показан только за дни периода; постоянные расходы такого месяца "
+               "пропорциональны числу дней.")
 
     with st.expander("Статьи начислений маркетплейса подробно"):
         from pnl.data import load

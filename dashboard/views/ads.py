@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, with_names
+from dashboard.quality import quality_block
 from pnl.engine import NO_SKU
 
 
@@ -18,6 +19,7 @@ def render():
     if res.facts.empty:
         st.warning("За период нет данных.")
         return
+    quality_block(f, res)
     facts = res.facts
     by_cab = summarize(facts, ["cabinet_id"])
     common = facts[facts["sku"] == NO_SKU].groupby("cabinet_id")["ads"].sum()

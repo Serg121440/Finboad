@@ -6,6 +6,7 @@ import streamlit as st
 from dashboard.common import (
     MP_NAMES, num, pct, result_for, rub, period_filters, summarize, hide_cogs_columns,
 )
+from dashboard.quality import quality_block
 from dashboard.theme import kpi_card, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
 
 ROWS = [
@@ -85,6 +86,9 @@ def render():
         st.warning("За период нет данных. Проверьте загрузку на странице «Кабинеты и налоги».")
         return
 
+    issues = quality_block(f, res)
+    final = "" if not any(i.blocking for i in issues) else " (предварительно)"
+
     cols = {}
     for mp in ("wb", "ozon"):
         if (facts["mp"] == mp).any():
@@ -105,7 +109,7 @@ def render():
         kpi_card("Реклама", rub(-total.get("ads", 0)), f"ДРР {pct(total.get('drr'))}", accent=WB_ACCENT)
     with k[3]:
         n = total["net"]
-        kpi_card("Чистая прибыль", rub(n), f"постоянные {rub(-total['fixed'])}",
+        kpi_card("Чистая прибыль" + final, rub(n), f"постоянные {rub(-total['fixed'])}",
                  "up" if n >= 0 else "down", accent=OZON_ACCENT)
 
     table = pd.DataFrame({name: [_fmt(c.get(key), kind) for key, _, kind in ROWS] for name, c in cols.items()},
@@ -129,18 +133,3 @@ def render():
             t2 = pd.DataFrame({n: [_fmt(c.get(key), kind) for key, _, kind in ROWS] for n, c in by.items()},
                               index=[label for _, label, _ in ROWS])
             _show(hide_cogs_columns(t2.T).T)
-
-    # warnings
-    miss = facts[facts["cost_missing_qty"] != 0]
-    if not miss.empty:
-        st.warning(f"Нет себестоимости для {num(miss['cost_missing_qty'].sum())} шт. "
-                   f"({miss['sku'].nunique()} товаров) — прибыль завышена. Заполните на странице «Себестоимость».")
-    if not res.taxes.empty:
-        notes = res.taxes[res.taxes["note"].fillna("") != ""]
-        for _, r in notes.iterrows():
-            st.info(f"Налоги, {pd.Timestamp(r['month']):%m.%Y}: {r['note']}")
-    ent_with_tax = set(res.taxes["entity_id"]) if not res.taxes.empty else set()
-    no_tax = f.cabinets[f.cabinets["id"].isin(f.cabinet_ids) & ~f.cabinets["entity_id"].isin(ent_with_tax)]
-    if not no_tax.empty:
-        st.info("Налог не считается для: " + ", ".join(no_tax["name"]) +
-                ". Укажите юрлицо и налоговый режим на странице «Кабинеты и налоги».")

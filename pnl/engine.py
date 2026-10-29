@@ -49,7 +49,7 @@ class Data:
     ledger: pd.DataFrame              # cabinet_id, date, sku, category, amount, qty, posting, raw_type
     ads: pd.DataFrame                 # cabinet_id, date, sku, amount, kind, campaign_id
     campaigns: pd.DataFrame           # cabinet_id, campaign_id, type
-    orders: pd.DataFrame              # cabinet_id, date, sku, qty, amount, cancelled
+    orders: pd.DataFrame              # cabinet_id, date, sku, qty, amount, cancelled, status
     products: pd.DataFrame            # cabinet_id, sku, article, name, category, vat10
     cogs: pd.DataFrame                # article, cabinet_id, valid_from, cost
     fixed: pd.DataFrame               # entity_id, cabinet_id, month, item, amount
@@ -224,17 +224,32 @@ def fact_table(d: Data) -> pd.DataFrame:
     return f
 
 
+ORDER_COLS = ["ordered_qty", "ordered_sum", "cancelled_qty", "cancelled_sum", "delivered_qty",
+              "transit_qty", "unknown_qty"]
+
+
+def order_outcome(o: pd.DataFrame) -> pd.Series:
+    """What became of each order line: delivered / cancelled / transit / unknown (no status stored)."""
+    st = o["status"].fillna("") if "status" in o else pd.Series("", index=o.index)
+    return pd.Series(np.select([o["cancelled"].astype(bool), st == "delivered", st == ""],
+                               ["cancelled", "delivered", "unknown"], "transit"), index=o.index)
+
+
 def orders_table(d: Data) -> pd.DataFrame:
     o = d.orders.copy()
     if o.empty:
-        return pd.DataFrame(columns=["cabinet_id", "month", "sku", "ordered_qty", "ordered_sum",
-                                     "cancelled_qty", "cancelled_sum"])
+        return pd.DataFrame(columns=["cabinet_id", "month", "sku"] + ORDER_COLS)
     o["month"] = _month(o["date"])
-    o["c_qty"] = np.where(o["cancelled"], o["qty"], 0)
-    o["c_sum"] = np.where(o["cancelled"], o["amount"], 0)
+    out = order_outcome(o)
+    o["c_qty"] = np.where(out == "cancelled", o["qty"], 0)
+    o["c_sum"] = np.where(out == "cancelled", o["amount"], 0)
+    for k in ("delivered", "transit", "unknown"):
+        o[f"{k}_qty"] = np.where(out == k, o["qty"], 0)
     return o.groupby(["cabinet_id", "month", "sku"], as_index=False).agg(
         ordered_qty=("qty", "sum"), ordered_sum=("amount", "sum"),
-        cancelled_qty=("c_qty", "sum"), cancelled_sum=("c_sum", "sum"))
+        cancelled_qty=("c_qty", "sum"), cancelled_sum=("c_sum", "sum"),
+        delivered_qty=("delivered_qty", "sum"), transit_qty=("transit_qty", "sum"),
+        unknown_qty=("unknown_qty", "sum"))
 
 
 # ── taxes ────────────────────────────────────────────────────────────────────
