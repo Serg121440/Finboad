@@ -4,10 +4,12 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, num, pct, result_for, rub, period_filters, summarize, hide_cogs_columns,
+    MP_NAMES, num, pct, result_for, rub, period_filters, summarize,
 )
 from dashboard.quality import quality_block
-from dashboard.theme import kpi_card, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
+from dashboard.theme import kpi_card, tree_table, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
+from pnl.categories import CATEGORIES
+from pnl.engine import DETAIL_LINES
 
 ROWS = [
     ("ordered_sum", "Заказы, ₽", "rub"),
@@ -52,10 +54,44 @@ def _fmt(v, kind):
     return {"rub": rub, "num": num, "pct": pct}[kind](v)
 
 
-def _show(table: pd.DataFrame):
-    t = table.reset_index().rename(columns={"index": "Показатель"})
-    st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
-                 column_config={"Показатель": st.column_config.TextColumn(width="large")})
+STRONG = {"mp_result", "profit", "net"}
+
+
+def _breakdown(details: pd.DataFrame, line: str, scopes: list) -> list[dict]:
+    """Rows under a P&L line: ledger category -> accrual type, one value per column scope."""
+    d = details[details["line"] == line] if not details.empty else details
+    if d.empty:
+        return []
+
+    def vals(part):
+        return [rub(part[part["cabinet_id"].isin(ids)]["amount"].sum()) if part["cabinet_id"].isin(ids).any()
+                else "—" for ids in scopes]
+
+    rows = []
+    for cat, part in sorted(d.groupby("category"), key=lambda kv: -abs(kv[1]["amount"].sum())):
+        types = part.assign(raw_type=part["raw_type"].replace("", "Без типа"))
+        kids = [{"label": t, "values": vals(p)}
+                for t, p in sorted(types.groupby("raw_type"), key=lambda kv: -abs(kv[1]["amount"].sum()))]
+        label = CATEGORIES.get(cat, ("", cat))[1] or cat
+        # a category with a single accrual type of the same meaning needs no third level
+        if len(kids) == 1 and kids[0]["label"] in ("Без типа", label):
+            kids = []
+        rows.append({"label": label, "values": vals(part), "children": kids})
+    return rows
+
+
+def _show(cols: dict, scopes: list, details: pd.DataFrame):
+    """cols: column name -> stats; scopes: cabinet ids behind each column (same order)."""
+    acc = st.session_state.get("access")
+    hidden = {"cogs", "roi"} if acc and acc.hide_cogs else set()
+    rows = []
+    for key, label, kind in ROWS:
+        if key in hidden:
+            continue
+        rows.append({"label": label, "values": [_fmt(c.get(key), kind) for c in cols.values()],
+                     "children": _breakdown(details, key, scopes) if key in DETAIL_LINES else [],
+                     "strong": key in STRONG})
+    tree_table(list(cols), rows)
 
 
 def render():
@@ -89,14 +125,16 @@ def render():
     issues = quality_block(f, res)
     final = "" if not any(i.blocking for i in issues) else " (предварительно)"
 
-    cols = {}
+    cols, scopes = {}, []
     for mp in ("wb", "ozon"):
         if (facts["mp"] == mp).any():
             cols[MP_NAMES[mp]] = _column(facts[facts["mp"] == mp],
                                          orders[orders["mp"] == mp] if not orders.empty else orders,
                                          fixed_by_mp.get(mp, 0.0))
+            scopes.append([i for i, m in cab_mp.items() if m == mp])
     total = _column(facts, orders, sum(fixed_by_mp.values()))
     cols["Всего"] = total
+    scopes.append(list(f.cabinet_ids))
 
     k = st.columns(4)
     with k[0]:
@@ -112,16 +150,15 @@ def render():
         kpi_card("Чистая прибыль" + final, rub(n), f"постоянные {rub(-total['fixed'])}",
                  "up" if n >= 0 else "down", accent=OZON_ACCENT)
 
-    table = pd.DataFrame({name: [_fmt(c.get(key), kind) for key, _, kind in ROWS] for name, c in cols.items()},
-                         index=[label for _, label, _ in ROWS])
     if "_common" in fixed_by_mp and len(cols) > 1:
         st.caption(f"Постоянные расходы без привязки к кабинету ({rub(fixed_by_mp['_common'])}) входят только в «Всего».")
-    _show(hide_cogs_columns(table.T).T)
+    st.caption("Строки со стрелкой ▸ раскрываются до групп и типов начислений из отчёта маркетплейса.")
+    _show(cols, scopes, res.details)
 
     # by cabinet
     if len(f.cabinet_ids) > 1:
         st.subheader("По кабинетам")
-        by = {}
+        by, by_scopes = {}, []
         for _, c in f.cabinets[f.cabinets["id"].isin(f.cabinet_ids)].iterrows():
             fc = facts[facts["cabinet_id"] == c["id"]]
             if fc.empty:
@@ -129,7 +166,6 @@ def render():
             oc = orders[orders["cabinet_id"] == c["id"]] if not orders.empty else orders
             fxc = float(fixed_sel[fixed_sel["cabinet_id"] == c["id"]]["amount"].sum()) if not fixed_sel.empty else 0.0
             by[f"{MP_NAMES[c['marketplace']]} · {c['name']}"] = _column(fc, oc, fxc)
+            by_scopes.append([c["id"]])
         if by:
-            t2 = pd.DataFrame({n: [_fmt(c.get(key), kind) for key, _, kind in ROWS] for n, c in by.items()},
-                              index=[label for _, label, _ in ROWS])
-            _show(hide_cogs_columns(t2.T).T)
+            _show(by, by_scopes, res.details)
