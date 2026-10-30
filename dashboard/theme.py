@@ -138,6 +138,36 @@ def inject_css():
       .fb-pill-ok   {{ background: rgba(16,185,129,0.12); color: {SUCCESS};     border-color: rgba(16,185,129,0.25); }}
       .fb-pill-err  {{ background: rgba(239,68,68,0.12);  color: {DANGER};      border-color: rgba(239,68,68,0.25); }}
       .fb-status {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }}
+
+      /* Tree table: P&L lines that open into their accrual types */
+      .fb-tree {{
+        --fb-tree-label: 260px;
+        overflow-x: auto; border: 1px solid {BORDER}; border-radius: 10px; font-size: 14px;
+      }}
+      @media (max-width: 640px) {{ .fb-tree {{ --fb-tree-label: 170px; font-size: 13px; }} }}
+      .fb-tree details > summary {{ list-style: none; cursor: pointer; }}
+      .fb-tree details > summary::-webkit-details-marker {{ display: none; }}
+      .fb-tree details > summary::marker {{ content: ""; }}
+      .fb-tree-row {{
+        display: grid; grid-template-columns: var(--fb-tree-cols); align-items: center;
+        border-bottom: 1px solid {BORDER}; min-height: 36px;
+      }}
+      .fb-tree-row > div {{ padding: 6px 12px; }}
+      .fb-tree-row > .num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+      .fb-tree-head {{ background: {CARD}; color: {MUTED}; font-size: 13px; }}
+      .fb-tree summary.fb-tree-row:hover {{ background: {HOVER}; }}
+      .fb-tree-row.strong {{ font-weight: 600; background: {CARD}; }}
+      .fb-tree-row.sub {{ color: {MUTED}; font-size: 13px; }}
+      .fb-tree-label {{ display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: break-word; }}
+      .fb-tree-caret {{
+        width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center;
+        flex: none; color: {MUTED}; transition: transform .15s;
+      }}
+      .fb-tree summary .fb-tree-caret::before {{
+        content: ""; width: 6px; height: 6px; margin-left: -2px;
+        border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+      }}
+      .fb-tree details[open] > summary .fb-tree-caret {{ transform: rotate(90deg); }}
       .fb-status-dot {{ width: 8px; height: 8px; border-radius: 50%; }}
       .fb-status-dot.ok  {{ background: {SUCCESS}; box-shadow: 0 0 8px {SUCCESS}; }}
       .fb-status-dot.err {{ background: {DANGER}; }}
@@ -154,6 +184,32 @@ def brand_block():
         '</div>',
         unsafe_allow_html=True,
     )
+
+
+def tree_table(columns: list[str], rows: list[dict], label_title: str = "Показатель"):
+    """Table whose rows open into nested rows (без JS: <details>).
+    row = {"label": str, "values": [str per column], "children": [row, ...], "strong": bool}."""
+    from html import escape
+
+    def render(r: dict, level: int) -> str:
+        kids = r.get("children") or []
+        cls = "fb-tree-row" + (" strong" if r.get("strong") else "") + (" sub" if level > 1 else "")
+        caret = '<span class="fb-tree-caret"></span>'
+        cells = "".join(f'<div class="num">{escape(str(v))}</div>' for v in r["values"])
+        label = (f'<div class="fb-tree-label" style="padding-left:{12 + 20 * level}px">'
+                 f'{caret}<span>{escape(r["label"])}</span></div>')
+        if not kids:
+            return f'<div class="{cls}">{label}{cells}</div>'
+        inner = "".join(render(k, level + 1) for k in kids)
+        return f'<details><summary class="{cls}">{label}{cells}</summary>{inner}</details>'
+
+    head = "".join(f'<div class="num">{escape(c)}</div>' for c in columns)
+    cols = f"minmax(var(--fb-tree-label), 2fr) repeat({len(columns)}, minmax(110px, 1fr))"
+    body = "".join(render(r, 0) for r in rows)
+    width = f"calc(var(--fb-tree-label) + {110 * len(columns)}px)"
+    st.html(f'<div class="fb-tree" style="--fb-tree-cols:{cols}"><div style="min-width:{width}">'
+            f'<div class="fb-tree-row fb-tree-head"><div>{escape(label_title)}</div>{head}</div>'
+            f'{body}</div></div>')
 
 
 def status_dot(ok: bool, label: str) -> str:

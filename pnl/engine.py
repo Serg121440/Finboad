@@ -352,6 +352,24 @@ class Result:
     taxes: pd.DataFrame        # per entity/month
     cabinets: pd.DataFrame
     products: pd.DataFrame
+    details: pd.DataFrame = field(default_factory=pd.DataFrame)  # (cabinet_id, line, category, raw_type) amounts
+
+
+# P&L lines whose ledger breakdown the reports can expand
+DETAIL_LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services", "other"]
+
+
+def ledger_details(ledger: pd.DataFrame) -> pd.DataFrame:
+    """Ledger summed by (cabinet, line, category, accrual type) — what each P&L line is made of.
+    The sum per line equals that line in the fact table."""
+    cols = ["cabinet_id", "line", "category", "raw_type", "amount"]
+    if ledger.empty:
+        return pd.DataFrame(columns=cols)
+    raw = ledger["raw_type"] if "raw_type" in ledger else pd.Series("", index=ledger.index)
+    led = ledger.assign(line=ledger["category"].map(line_of), raw_type=raw.fillna("").astype(str).str.strip())
+    led = led[led["line"].isin(DETAIL_LINES)]
+    g = led.groupby(cols[:-1], as_index=False)["amount"].sum()
+    return g[g["amount"].round(2) != 0][cols]
 
 
 def _in_period(df: pd.DataFrame, d: Data) -> pd.DataFrame:
@@ -389,7 +407,11 @@ def compute(d: Data) -> Result:
     if sel:
         f = f[f["cabinet_id"].isin(sel)]
         o = o[o["cabinet_id"].isin(sel)]
-    return Result(f.reset_index(drop=True), o, fixed_costs(d), taxes, d.cabinets, d.products)
+    det = ledger_details(dp.ledger)
+    if sel:
+        det = det[det["cabinet_id"].isin(sel)]
+    return Result(f.reset_index(drop=True), o, fixed_costs(d), taxes, d.cabinets, d.products,
+                  det.reset_index(drop=True))
 
 
 def summarize(facts: pd.DataFrame, by: list[str]) -> pd.DataFrame:
