@@ -389,8 +389,8 @@ def check_keys(marketplace: str, keys: dict) -> dict[str, str]:
             out["Seller API: начисления"] = str(e)[:200]
         try:
             SellerClient(keys["client_id"], keys["api_key"]).post(
-                "/v2/posting/fbo/list", {"filter": {"since": "2026-01-01T00:00:00Z",
-                                                    "to": "2026-01-02T00:00:00Z"}, "limit": 1})
+                "/v3/posting/fbo/list", {"filter": {"since": "2026-01-01T00:00:00Z",
+                                                    "to": "2026-01-02T00:00:00Z"}, "limit": 1, "cursor": ""})
             out["Seller API: заказы"] = "ok"
         except Exception as e:
             out["Seller API: заказы"] = str(e)[:200]
