@@ -85,8 +85,10 @@ class WbClient:
 
     # ── finance ──────────────────────────────────────────────────────────────
 
-    def report_detail(self, date_from: date, date_to: date, progress=None) -> list[dict]:
-        """Weekly realization report rows for reports in [date_from, date_to].
+    def report_detail(self, date_from: date, date_to: date, progress=None,
+                      period: str = "weekly") -> list[dict]:
+        """Realization report rows for reports in [date_from, date_to]; period "weekly" or "daily"
+        (daily reports come out the next day, weekly ones on Mondays).
 
         POST /api/finance/v1/sales-reports/detailed (camelCase fields, money as
         strings); the old /api/v5/supplier/reportDetailByPeriod is switched off.
@@ -100,7 +102,7 @@ class WbClient:
             self._last_report_call = time.time()
             batch = self._post(FIN_URL + "/api/finance/v1/sales-reports/detailed", {
                 "dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat(),
-                "limit": 100000, "rrdId": rrd, "period": "weekly"}) or []
+                "limit": 100000, "rrdId": rrd, "period": period}) or []
             rows += batch
             if progress:
                 progress(len(rows))
