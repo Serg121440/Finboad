@@ -46,6 +46,22 @@ def replace_ledger_keys(cabinet_id: int, key_prefixes: list[str], rows: list[dic
     return _insert(LedgerEntry, cabinet_id, [dict(r, source=source) for r in rows])
 
 
+WB_DAILY = "d"  # key prefix of rows from WB daily reports
+
+
+def replace_wb_daily(cabinet_id: int, weekly_to: date | None, date_from: date, date_to: date,
+                     rows: list[dict]) -> int:
+    """WB daily report rows fill the days after the last weekly report. Daily rows of days a weekly
+    report now covers, and of the reloaded window, are dropped so nothing counts twice."""
+    with session() as s:
+        daily = and_(LedgerEntry.cabinet_id == cabinet_id, LedgerEntry.source_key.like(f"{WB_DAILY}%"))
+        s.execute(delete(LedgerEntry).where(daily, LedgerEntry.date >= date_from, LedgerEntry.date <= date_to))
+        if weekly_to:
+            s.execute(delete(LedgerEntry).where(daily, LedgerEntry.date <= weekly_to))
+    keep = [r for r in rows if not weekly_to or r["date"] > weekly_to]
+    return _insert(LedgerEntry, cabinet_id, [dict(r, source="api") for r in keep])
+
+
 def replace_orders(cabinet_id: int, date_from: date, date_to: date, rows: list[dict]) -> int:
     with session() as s:
         s.execute(delete(OrderLine).where(and_(

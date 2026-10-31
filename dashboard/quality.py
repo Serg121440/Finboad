@@ -5,10 +5,10 @@ from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from core.db import session
-from core.models import FixedCost, FixedMonth
+from core.models import FixedCost, FixedMonth, LedgerEntry, SyncCursor
 
 MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь",
           "Ноябрь", "Декабрь"]
@@ -44,10 +44,20 @@ def month_label(m: date, d0: date, d1: date) -> str:
 
 def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame, d0: date, d1: date,
                 filled_months: set[date], missing_by_cabinet: dict[str, int],
-                ads_missing_by_cabinet: dict[str, int] | None = None) -> list[Issue]:
+                ads_missing_by_cabinet: dict[str, int] | None = None,
+                wb_report_to: dict[str, date | None] | None = None,
+                data_until: date | None = None) -> list[Issue]:
     """cabinets: the selected ones (id, name, entity_id). ads_missing_by_cabinet: WB only — its ads
-    come from the ad cabinet, not from accruals."""
+    come from the ad cabinet, not from accruals. wb_report_to: WB cabinet -> end of its latest
+    realization report, weekly or daily (None = no report yet). data_until: last day data can exist (yesterday)."""
     out = []
+    until = min(d1, data_until or d1)
+    for name, last in (wb_report_to or {}).items():
+        if until >= d0 and (last is None or last < until):
+            since = max(d0, last + timedelta(days=1)) if last else d0
+            out.append(Issue(f"{name}: отчёта WB о реализации за {since:%d.%m}–{until:%d.%m} ещё нет — продажи, "
+                             "комиссия и логистика WB за эти дни не учтены",
+                             "кнопка «Загрузить» выше (ежедневный отчёт WB выходит на следующий день)"))
     for name, miss in missing_by_cabinet.items():
         if miss:
             out.append(Issue(f"{name}: не загружено дней в периоде — {miss}", "кнопка «Загрузить» выше"))
@@ -92,6 +102,24 @@ def filled_fixed_months(d0: date, d1: date) -> set[date]:
     return have
 
 
+def wb_report_ends(cabinet_ids: list[int]) -> dict[int, date | None]:
+    """WB cabinet -> end of its latest loaded report (weekly or daily); before the first sync that stores it,
+    the latest sale date in the ledger."""
+    if not cabinet_ids:
+        return {}
+    with session() as s:
+        cur = dict(s.execute(select(SyncCursor.cabinet_id, SyncCursor.value).where(
+            SyncCursor.cabinet_id.in_(cabinet_ids), SyncCursor.stream == "wb_report_to")).all())
+        led = dict(s.execute(select(LedgerEntry.cabinet_id, func.max(LedgerEntry.date))
+                             .where(LedgerEntry.cabinet_id.in_(cabinet_ids))
+                             .group_by(LedgerEntry.cabinet_id)).all())
+    out = {}
+    for i in cabinet_ids:
+        v = cur.get(i) or led.get(i)
+        out[i] = date.fromisoformat(str(v)[:10]) if v else None
+    return out
+
+
 def issues_for(f, res) -> list[Issue]:
     from dashboard.common import _loaded_intervals, cabinet_label, missing_days
     cabs = f.cabinets[f.cabinets["id"].isin(f.cabinet_ids)]
@@ -102,9 +130,12 @@ def issues_for(f, res) -> list[Issue]:
                 if f.date_from <= end else 0 for _, r in rows.iterrows()}
 
     miss = missing(_loaded_intervals(), cabs)
-    ads_miss = missing(_loaded_intervals(("ads",)), cabs[cabs["marketplace"] == "wb"])
+    wb = cabs[cabs["marketplace"] == "wb"]
+    ads_miss = missing(_loaded_intervals(("ads",)), wb)
+    ends = wb_report_ends([int(i) for i in wb["id"]])
+    wb_to = {cabinet_label(r): ends.get(int(r["id"])) for _, r in wb.iterrows()}
     return find_issues(res.facts, res.taxes, cabs, f.date_from, f.date_to,
-                       filled_fixed_months(f.date_from, f.date_to), miss, ads_miss)
+                       filled_fixed_months(f.date_from, f.date_to), miss, ads_miss, wb_to, end)
 
 
 def quality_block(f, res) -> list[Issue]:

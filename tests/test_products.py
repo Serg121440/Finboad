@@ -119,6 +119,22 @@ def test_wb_ads_gap_keeps_result_preliminary():
                                                        "расходы занижены"]
 
 
+def test_wb_days_after_last_weekly_report_are_flagged():
+    facts = pd.DataFrame({"sku": ["1"], "cost_missing_qty": [0]})
+    cabs = pd.DataFrame({"id": [2], "name": ["ВБ"], "entity_id": [7]})
+    taxes = pd.DataFrame({"entity_id": [7], "month": [date(2026, 10, 1)], "note": [""]})
+    args = (facts, taxes, cabs, date(2026, 10, 24), date(2026, 10, 31), {date(2026, 10, 1)}, {})
+    # the last report ends 25.10, today is 31.10: 26–30.10 have no WB sales yet
+    late = find_issues(*args, None, {"Wildberries · ВБ": date(2026, 10, 25)}, date(2026, 10, 30))
+    assert [i.text for i in late if i.blocking] == [
+        "Wildberries · ВБ: отчёта WB о реализации за 26.10–30.10 ещё нет — продажи, комиссия и логистика "
+        "WB за эти дни не учтены"]
+    none = find_issues(*args, None, {"Wildberries · ВБ": None}, date(2026, 10, 30))
+    assert "за 24.10–30.10 ещё нет" in none[0].text
+    covered = find_issues(*args, None, {"Wildberries · ВБ": date(2026, 11, 1)}, date(2026, 10, 30))
+    assert not [i for i in covered if i.blocking]
+
+
 def test_month_without_tax_setting_is_blocking():
     facts = pd.DataFrame({"sku": ["1"], "cost_missing_qty": [0]})
     cabs = pd.DataFrame({"id": [1], "name": ["A"], "entity_id": [7]})

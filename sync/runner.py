@@ -254,6 +254,12 @@ def wb_orders(rows: list[dict], date_from: date, date_to: date) -> list[dict]:
     return out
 
 
+def _wb_report_end(rows: list[dict], known: str = "") -> str:
+    """Latest report end date (ISO) among rows and an already known one."""
+    ends = [str(r.get("dateTo") or r.get("date_to") or "")[:10] for r in rows]
+    return max([e for e in ends if e] + [known or ""])
+
+
 def sync_wb(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams) -> dict:
     client = WbClient(keys["token"])
     result = {}
@@ -266,9 +272,25 @@ def sync_wb(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams) -
             ledger = wb_pnl.rows_to_ledger(rows)
             reports = sorted({f"{r.get('reportId') or r.get('realizationreport_id')}:" for r in rows})
             n = store.replace_ledger_keys(cab.id, reports, ledger)
-            store.upsert_products(cab.id, list(wb_pnl.products_from_rows(rows).values()))
+            weekly_to = _wb_report_end(rows, store.get_cursor(cab.id, "wb_weekly_to"))
+            if weekly_to:
+                store.set_cursor(cab.id, "wb_weekly_to", weekly_to)
+            # weekly reports come out on Mondays: the days after the last one come from daily reports
+            weekly_end = date.fromisoformat(weekly_to) if weekly_to else None
+            d0 = max(date_from, weekly_end + timedelta(days=1)) if weekly_end else date_from
+            daily = []
+            if d0 <= date_to:
+                daily = client.report_detail(d0, date_to, period="daily",
+                                             progress=lambda k: run.update(message=f"ежедневные отчёты: {k}"))
+            n += store.replace_wb_daily(cab.id, weekly_end, d0, date_to,
+                                        wb_pnl.rows_to_ledger(daily, key_prefix=store.WB_DAILY))
+            store.upsert_products(cab.id, list(wb_pnl.products_from_rows(rows + daily).values()))
             store.set_cursor(cab.id, "accruals", date_to.isoformat())
-            run.done(n, f"отчётов: {len(reports)}")
+            last = _wb_report_end(daily, weekly_to or store.get_cursor(cab.id, "wb_report_to"))
+            if last:
+                store.set_cursor(cab.id, "wb_report_to", last)
+            run.done(n, f"недельных отчётов: {len(reports)}, ежедневных: "
+                        f"{len({r.get('reportId') for r in daily})}" + (f", данные по {last}" if last else ""))
             result["accruals"] = n
         except Exception as e:
             run.fail(f"{e}\n{traceback.format_exc()}")
