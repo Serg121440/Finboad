@@ -190,7 +190,7 @@ def fact_table(d: Data) -> pd.DataFrame:
     led = d.ledger.copy()
     if led.empty:
         led = pd.DataFrame(columns=["cabinet_id", "date", "sku", "category", "amount", "qty"])
-    led["month"] = _month(led["date"]) if len(led) else []
+    led["month"] = _month(led["date"]) if len(led) else pd.Series(index=led.index, dtype=object)
     led["line"] = led["category"].map(line_of)
     led = led[~led["line"].isin(["ads", "excluded"])]
 
