@@ -66,3 +66,13 @@ def test_breakdown_groups_by_category_and_type_inside_period():
 def test_breakdown_keeps_selected_cabinets_only():
     det = compute(_data(LEDGER, selected=[2])).details
     assert set(det["cabinet_id"]) == {2}
+
+
+def test_period_with_ads_but_no_accruals():
+    # e.g. today: accruals not loaded yet, ad spend already is
+    d = _data([])
+    d.ledger = pd.DataFrame(columns=list(_row(1, 24, "sale", 0, "").keys()))
+    d.ads = pd.DataFrame([{"cabinet_id": 1, "date": date(2026, 10, 30), "sku": "s1", "amount": 150.0,
+                           "kind": "spend", "campaign_id": "c1"}])
+    r = compute(d)
+    assert r.facts["ads"].sum() == pytest.approx(-150.0)
