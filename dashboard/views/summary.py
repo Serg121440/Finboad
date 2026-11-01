@@ -6,7 +6,7 @@ import streamlit as st
 from dashboard.common import (
     MP_NAMES, num, pct, result_for, rub, period_filters, summarize,
 )
-from dashboard.quality import quality_block
+from dashboard.quality import quality_block, status_line
 from dashboard.theme import kpi_card, tree_table, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
 from pnl.categories import CATEGORIES
 from pnl.engine import DETAIL_LINES
@@ -55,43 +55,126 @@ def _fmt(v, kind):
 
 
 STRONG = {"mp_result", "profit", "net"}
+# money lines shown with their share of the column's revenue: costs as a plain share,
+# results with their sign (как маржа)
+SHARE_LINES = set(DETAIL_LINES) - {"revenue"} | {"ads", "cogs", "vat", "tax", "fixed"}
+SIGNED_SHARE = {"mp_result", "profit", "net"}
 
 
-def _breakdown(details: pd.DataFrame, line: str, scopes: list) -> list[dict]:
+def _share(v, revenue, signed=False):
+    if v is None or pd.isna(v) or not v or not revenue or pd.isna(revenue):
+        return None
+    return v / revenue if signed else abs(v) / abs(revenue)
+
+
+def _breakdown(details: pd.DataFrame, line: str, scopes: list, revenues: list) -> list[dict]:
     """Rows under a P&L line: ledger category -> accrual type, one value per column scope."""
     d = details[details["line"] == line] if not details.empty else details
     if d.empty:
         return []
 
-    def vals(part):
-        return [rub(part[part["cabinet_id"].isin(ids)]["amount"].sum()) if part["cabinet_id"].isin(ids).any()
-                else "—" for ids in scopes]
+    def node(label, part):
+        vals = [part[part["cabinet_id"].isin(ids)]["amount"].sum() if part["cabinet_id"].isin(ids).any()
+                else None for ids in scopes]
+        shares = [_share(v, r) for v, r in zip(vals, revenues)] if line != "revenue" else [None] * len(vals)
+        return {"label": label, "kind": "rub", "values": vals, "shares": shares, "children": []}
 
     rows = []
     for cat, part in sorted(d.groupby("category"), key=lambda kv: -abs(kv[1]["amount"].sum())):
         types = part.assign(raw_type=part["raw_type"].replace("", "Без типа"))
-        kids = [{"label": t, "values": vals(p)}
-                for t, p in sorted(types.groupby("raw_type"), key=lambda kv: -abs(kv[1]["amount"].sum()))]
+        kids = [node(t, p) for t, p in sorted(types.groupby("raw_type"), key=lambda kv: -abs(kv[1]["amount"].sum()))]
         label = CATEGORIES.get(cat, ("", cat))[1] or cat
+        row = node(label, part)
         # a category with a single accrual type of the same meaning needs no third level
-        if len(kids) == 1 and kids[0]["label"] in ("Без типа", label):
-            kids = []
-        rows.append({"label": label, "values": vals(part), "children": kids})
+        if not (len(kids) == 1 and kids[0]["label"] in ("Без типа", label)):
+            row["children"] = kids
+        rows.append(row)
     return rows
 
 
-def _show(cols: dict, scopes: list, details: pd.DataFrame):
-    """cols: column name -> stats; scopes: cabinet ids behind each column (same order)."""
-    acc = st.session_state.get("access")
-    hidden = {"cogs", "roi"} if acc and acc.hide_cogs else set()
+def table_rows(cols: dict, scopes: list, details: pd.DataFrame, hidden: set = frozenset()) -> list[dict]:
+    """Numbers of the report: one row per P&L line with values, shares of revenue and breakdown.
+    cols: column name -> stats; scopes: cabinet ids behind each column (same order)."""
+    revenues = [c.get("revenue") for c in cols.values()]
     rows = []
     for key, label, kind in ROWS:
         if key in hidden:
             continue
-        rows.append({"label": label, "values": [_fmt(c.get(key), kind) for c in cols.values()],
-                     "children": _breakdown(details, key, scopes) if key in DETAIL_LINES else [],
+        vals = [c.get(key) for c in cols.values()]
+        shares = ([_share(v, r, key in SIGNED_SHARE) for v, r in zip(vals, revenues)]
+                  if key in SHARE_LINES | SIGNED_SHARE else [None] * len(vals))
+        rows.append({"label": label, "kind": kind, "values": vals, "shares": shares,
+                     "children": _breakdown(details, key, scopes, revenues) if key in DETAIL_LINES else [],
                      "strong": key in STRONG})
-    tree_table(list(cols), rows)
+    return rows
+
+
+def _hidden() -> set:
+    acc = st.session_state.get("access")
+    return {"cogs", "roi"} if acc and acc.hide_cogs else set()
+
+
+def _html_rows(rows: list[dict]) -> list[dict]:
+    return [{"label": r["label"], "strong": r.get("strong"),
+             "values": [(_fmt(v, r["kind"]), pct(sh) if sh is not None else "")
+                        for v, sh in zip(r["values"], r["shares"])],
+             "children": _html_rows(r["children"])} for r in rows]
+
+
+def _show(cols: dict, scopes: list, details: pd.DataFrame) -> list[dict]:
+    rows = table_rows(cols, scopes, details, _hidden())
+    tree_table(list(cols), _html_rows(rows))
+    return rows
+
+
+def excel_report(sections: list[tuple[str, list[str], list[dict]]], header: list[str]) -> bytes:
+    """xlsx: one sheet per table; each column as ₽ and % of revenue, breakdown rows indented."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, names, rows in sections:
+        ws = wb.create_sheet(title[:31])
+        for line in header:
+            ws.append([line])
+        ws.append([])
+        ws.append(["Показатель"] + [h for n in names for h in (n, f"{n}, % выручки")])
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True)
+
+        def put(r, level):
+            vals = []
+            for v, sh in zip(r["values"], r["shares"]):
+                v = None if v is None or pd.isna(v) else float(v)
+                vals += [round(v, 4) if r["kind"] == "pct" and v is not None else
+                         (round(v, 2) if v is not None else None),
+                         round(sh, 4) if sh is not None else None]
+            ws.append([r["label"]] + vals)
+            row = ws[ws.max_row]
+            row[0].alignment = Alignment(indent=2 * level)
+            if r.get("strong"):
+                for c in row:
+                    c.font = Font(bold=True)
+            for i, c in enumerate(row[1:]):
+                if i % 2:
+                    c.number_format = "0.0%"
+                else:
+                    c.number_format = {"rub": "#,##0 ₽;-#,##0 ₽", "num": "#,##0", "pct": "0.0%"}[r["kind"]]
+            # a single accrual type repeats its group's sum: the group is enough in a sheet
+            for k in r["children"] if len(r["children"]) > 1 else []:
+                put(k, level + 1)
+
+        for r in rows:
+            put(r, 0)
+        ws.column_dimensions["A"].width = 52
+        for i in range(2, 2 + 2 * len(names)):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = 18 if i % 2 == 0 else 11
+        ws.freeze_panes = ws.cell(row=len(header) + 3, column=2)
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def render():
@@ -152,8 +235,9 @@ def render():
 
     if "_common" in fixed_by_mp and len(cols) > 1:
         st.caption(f"Постоянные расходы без привязки к кабинету ({rub(fixed_by_mp['_common'])}) входят только в «Всего».")
-    st.caption("Строки со стрелкой ▸ раскрываются до групп и типов начислений из отчёта маркетплейса.")
-    _show(cols, scopes, res.details)
+    st.caption("Строки со стрелкой ▸ раскрываются до групп и типов начислений из отчёта маркетплейса. "
+               "Под суммой — доля от выручки этой колонки.")
+    sections = [("Финрезультат", list(cols), _show(cols, scopes, res.details))]
 
     # by cabinet
     if len(f.cabinet_ids) > 1:
@@ -168,4 +252,9 @@ def render():
             by[f"{MP_NAMES[c['marketplace']]} · {c['name']}"] = _column(fc, oc, fxc)
             by_scopes.append([c["id"]])
         if by:
-            _show(by, by_scopes, res.details)
+            sections.append(("По кабинетам", list(by), _show(by, by_scopes, res.details)))
+
+    header = [f"Финансовый результат {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}", status_line(issues)]
+    st.download_button("Скачать Excel", excel_report(sections, header), type="secondary",
+                       file_name=f"финрезультат_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

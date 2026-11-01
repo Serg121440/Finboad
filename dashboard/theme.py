@@ -154,6 +154,7 @@ def inject_css():
       }}
       .fb-tree-row > div {{ padding: 6px 12px; }}
       .fb-tree-row > .num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+      .fb-tree-note {{ display: block; font-size: 11px; color: {MUTED}; line-height: 1.2; }}
       .fb-tree-head {{ background: {CARD}; color: {MUTED}; font-size: 13px; }}
       .fb-tree summary.fb-tree-row:hover {{ background: {HOVER}; }}
       .fb-tree-row.strong {{ font-weight: 600; background: {CARD}; }}
@@ -188,14 +189,20 @@ def brand_block():
 
 def tree_table(columns: list[str], rows: list[dict], label_title: str = "Показатель"):
     """Table whose rows open into nested rows (без JS: <details>).
-    row = {"label": str, "values": [str per column], "children": [row, ...], "strong": bool}."""
+    row = {"label": str, "values": [str | (str, note) per column], "children": [row, ...], "strong": bool};
+    a note is drawn small under the value."""
     from html import escape
+
+    def cell(v) -> str:
+        main, note = v if isinstance(v, tuple) else (v, "")
+        note = f'<span class="fb-tree-note">{escape(note)}</span>' if note else ""
+        return f'<div class="num">{escape(str(main))}{note}</div>'
 
     def render(r: dict, level: int) -> str:
         kids = r.get("children") or []
         cls = "fb-tree-row" + (" strong" if r.get("strong") else "") + (" sub" if level > 1 else "")
         caret = '<span class="fb-tree-caret"></span>'
-        cells = "".join(f'<div class="num">{escape(str(v))}</div>' for v in r["values"])
+        cells = "".join(cell(v) for v in r["values"])
         label = (f'<div class="fb-tree-label" style="padding-left:{12 + 20 * level}px">'
                  f'{caret}<span>{escape(r["label"])}</span></div>')
         if not kids:

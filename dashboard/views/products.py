@@ -29,7 +29,16 @@ SHORT_PERIOD_DAYS = 14
 UNIT_LINES = {"price": "Цена", "commission": "Комиссия", "acquiring": "Эквайринг", "logistics": "Логистика",
               "ads": "Реклама", "cogs": "Себестоимость", "profit": "Прибыль"}
 COMMON_LINES = ["ads", "logistics", "storage", "penalties", "services", "other", "commission", "vat", "tax"]
-FILTER_KEYS = ("prod_query", "prod_status")
+FILTER_KEYS = ("prod_query", "prod_status", "prod_mp")
+
+
+SHARE_COLS = {"Комиссия с эквайрингом": ["commission"], "Логистика": ["logistics"],
+              "Хранение и прочее": ["storage", "penalties", "services", "other"]}
+
+
+def revenue_share(g: pd.DataFrame, cols: list[str]) -> pd.Series:
+    """Cost lines as % of revenue; no positive revenue — no share."""
+    return -g[cols].sum(axis=1) / g["revenue"].where(g["revenue"] > 0) * 100
 
 
 def buyout_rate(g: pd.DataFrame) -> pd.Series:
@@ -169,8 +178,13 @@ def render():
     g["status"] = status_of(g)
     g["buyout_pct"] = buyout_rate(g) * 100
 
-    c1, c2, c3 = st.columns([2, 1, 1])
+    mps = [m for m in ("ozon", "wb") if (g["marketplace"] == m).any()]
+    if st.session_state.get("prod_mp") not in ["Все"] + mps:
+        st.session_state.pop("prod_mp", None)    # remembered from a selection with another marketplace
+    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
     query = c1.text_input("Поиск по артикулу или названию", key="prod_query")
+    mp = c4.selectbox("Площадка", ["Все"] + mps, key="prod_mp", format_func=lambda m: MP_NAMES.get(m, m),
+                      disabled=len(mps) < 2)
     status = c2.selectbox("Статус", ["Все", "убыток", "прибыль", "нет себестоимости", "нет продаж",
                                      "только возвраты"], key="prod_status")
     sort = c3.selectbox("Сортировка", ["Прибыль ↑", "Прибыль ↓", "Выручка ↓", "ДРР ↓"])
@@ -181,6 +195,8 @@ def render():
               v["name"].str.lower().str.contains(ql, regex=False) | (v["sku"] == query)]
     if status != "Все":
         v = v[v["status"] == status]
+    if mp != "Все":
+        v = v[v["marketplace"] == mp]
     if v.empty:
         st.info("Ничего не найдено.")
         st.button("Сбросить фильтры", on_click=_reset_filters)
@@ -192,6 +208,8 @@ def render():
     out = pd.DataFrame({
         "Артикул": v["article"], "Товар": v["name"], "Статус": v["status"],
         "Прибыль, ₽": v["profit"], f"Прибыль {per}, ₽": v["u_profit"], f"Маржа {to}, %": v["u_margin"] * 100,
+        # costs as a share of the period's revenue (выкупы), whatever the base above
+        **{f"{t}, % выручки": revenue_share(v, cols) for t, cols in SHARE_COLS.items()},
         # orders of the period and what became of them
         "Заказано, шт": v["ordered_qty"], "Доставлено, шт": v["delivered_qty"], "Отменено, шт": v["cancelled_qty"],
         "В пути, шт": v["transit_qty"], "% выкупа заказов": v["buyout_pct"],
