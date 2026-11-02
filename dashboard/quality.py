@@ -175,13 +175,23 @@ def _links(issues: list[Issue], key: str) -> None:
             go(page, **({"prod_quick": quick} if quick else {}))
 
 
-def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q") -> list[Issue]:
+def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q", compact: bool = False) -> list[Issue]:
     """Status above the numbers: final or preliminary, what's missing, and what needs attention.
-    Each line with a fix or a selection gets a button that opens it."""
+    Each line with a fix or a selection gets a button that opens it. compact: one folded line,
+    the list and the buttons inside it (pages whose charts should come first)."""
     issues = issues_for(f, res)
     blocking = [i for i in issues if i.blocking]
     notes = issues + (extra or [])
     lines = "\n".join(f"- {i.text}" + (f" → {i.where}" if i.where else "") for i in notes)
+    if compact and notes:
+        n = len(notes)
+        word = "оговорка" if n % 10 == 1 and n % 100 != 11 else \
+            "оговорки" if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14) else "оговорок"
+        title = (f"Предварительный результат: {n} {word}" if blocking else f"Расчёт полный, требует внимания: {n}")
+        with st.expander(title, icon=":material/warning:" if blocking else ":material/info:"):
+            st.markdown(lines)
+            _links(notes, key)
+        return issues
     if blocking:
         st.warning(f"**Предварительный результат** — не всё учтено:\n{lines}", icon=":material/warning:")
     elif notes:

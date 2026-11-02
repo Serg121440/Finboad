@@ -160,6 +160,11 @@ def cabinet_label(row) -> str:
 
 PERIODS = ["Этот месяц", "Прошлый месяц", "Последние 7 дней", "Последние 30 дней",
            "С начала года", "Свой период"]
+FRESH_MONTH_DAYS = 7     # until then reports open on the last month: a few days say nothing about a month
+
+
+def default_period() -> str:
+    return "Прошлый месяц" if date.today().day <= FRESH_MONTH_DAYS else "Этот месяц"
 
 
 def _period(choice: str) -> tuple[date, date]:
@@ -214,7 +219,7 @@ def period_filters(key: str = "flt") -> Filters | None:
         return None
     labels = {cabinet_label(r): r["id"] for _, r in cabs.iterrows()}
     month = (date.today().replace(day=1), max(date.today().replace(day=1), date.today() - timedelta(days=1)))
-    _remembered(f"{key}_period", PERIODS[0], lambda v: v in PERIODS)
+    _remembered(f"{key}_period", default_period(), lambda v: v in PERIODS)
     _remembered(f"{key}_range", month, lambda v: isinstance(v, tuple) and len(v) == 2)
     _remembered(f"{key}_cabs", list(labels), lambda v: all(x in labels for x in v))
     acc = st.session_state.get("access")
@@ -328,10 +333,19 @@ def daily_for(date_from: date, date_to: date, cabinet_id: int, sku: str, version
     return daily(load(date_from, date_to, [cabinet_id]), cabinet_id, sku)
 
 
+@st.cache_data(ttl=300, show_spinner="Считаю по дням…")
+def daily_totals_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
+    """All products of the cabinets by day (pnl.engine.daily_totals): orders and ads."""
+    from pnl.data import load
+    from pnl.engine import daily_totals
+    return daily_totals(load(date_from, date_to, list(cabinet_ids)))
+
+
 def data_changed():
     """Call after edits (cost, fixed costs, settings) so pages recalculate."""
     calc.clear()
     daily_for.clear()
+    daily_totals_for.clear()
 
 
 def result_for(f: Filters):
