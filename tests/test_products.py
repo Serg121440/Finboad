@@ -208,3 +208,18 @@ def test_incomplete_days_are_gaps_and_tail():
                            [(date(2026, 10, 1), date(2026, 10, 10)), (date(2026, 10, 13), date(2026, 10, 31))],
                            complete_to=date(2026, 10, 28))
     assert runs == [(date(2026, 10, 11), date(2026, 10, 12)), (date(2026, 10, 29), date(2026, 10, 31))]
+
+
+def test_daily_ads_use_the_period_click_shares():
+    # clicks on 24.10, the cabinet charge for them on 25.10: the day has no click statistics
+    from tests.test_details import _data
+    from pnl.engine import compute, daily, summarize
+    led = [{"cabinet_id": 1, "date": date(2026, 10, 25), "sku": None, "category": "ads_mp", "amount": -400.0,
+            "qty": 0, "posting": "", "raw_type": "Оплата за клик"}]
+    d = _data(led)
+    d.ads = pd.DataFrame([{"cabinet_id": 1, "date": date(2026, 10, 24), "sku": s, "amount": a,
+                           "kind": "alloc_cpc", "campaign_id": "c1"} for s, a in (("7", 30.0), ("8", 10.0))])
+    day = daily(d, 1, "7")
+    assert day.set_index("date").loc[date(2026, 10, 25), "ads"] == pytest.approx(-300.0)
+    month = summarize(compute(d).facts, ["sku"]).set_index("sku")
+    assert month.loc["7", "ads"] == pytest.approx(day["ads"].sum())

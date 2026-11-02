@@ -98,6 +98,8 @@ def ads_by_sku(d: Data, bucket=_month) -> pd.DataFrame:
     led = d.ledger[d.ledger["category"] == "ads_mp"].copy()
     if not led.empty:
         led["month"] = bucket(led["date"])
+        # click/order shares are always monthly, as in the product table, even when money is per day
+        led["period"] = _month(led["date"])
         camp_type = {}
         if not d.campaigns.empty:
             camp_type = {(r.cabinet_id, str(r.campaign_id)): r.type for r in d.campaigns.itertuples()}
@@ -114,22 +116,23 @@ def ads_by_sku(d: Data, bucket=_month) -> pd.DataFrame:
         led["pool"] = [pool(r) for r in led.itertuples()]
         alloc = d.ads[d.ads["kind"].isin(["alloc_cpc", "alloc_cpo"])].copy()
         if not alloc.empty:
-            alloc["month"] = bucket(alloc["date"])
+            alloc["period"] = _month(alloc["date"])
             alloc["pool"] = alloc["kind"].str.replace("alloc_", "", regex=False)
-            w = alloc.groupby(["cabinet_id", "month", "pool", "sku"], as_index=False)["amount"].sum()
-            w["share"] = w["amount"] / w.groupby(["cabinet_id", "month", "pool"])["amount"].transform("sum")
+            w = alloc.groupby(["cabinet_id", "period", "pool", "sku"], as_index=False)["amount"].sum()
+            w["share"] = w["amount"] / w.groupby(["cabinet_id", "period", "pool"])["amount"].transform("sum")
         else:
-            w = pd.DataFrame(columns=["cabinet_id", "month", "pool", "sku", "share"])
+            w = pd.DataFrame(columns=["cabinet_id", "period", "pool", "sku", "share"])
 
-        money = led.groupby(["cabinet_id", "month", "pool", "sku"], dropna=False, as_index=False)["amount"].sum()
+        money = led.groupby(["cabinet_id", "month", "period", "pool", "sku"], dropna=False,
+                            as_index=False)["amount"].sum()
         direct = money[money["pool"] == "direct"][["cabinet_id", "month", "sku", "amount"]]
         out.append(direct)
         for p in ("cpc", "cpo"):
-            m = money[money["pool"] == p].groupby(["cabinet_id", "month"], as_index=False)["amount"].sum()
+            m = money[money["pool"] == p].groupby(["cabinet_id", "month", "period"], as_index=False)["amount"].sum()
             if m.empty:
                 continue
-            split = m.merge(w[w["pool"] == p][["cabinet_id", "month", "sku", "share"]],
-                            on=["cabinet_id", "month"], how="left")
+            split = m.merge(w[w["pool"] == p][["cabinet_id", "period", "sku", "share"]],
+                            on=["cabinet_id", "period"], how="left")
             has = split["share"].notna()
             split.loc[has, "amount"] = split.loc[has, "amount"] * split.loc[has, "share"]
             split.loc[~has, "sku"] = NO_SKU
