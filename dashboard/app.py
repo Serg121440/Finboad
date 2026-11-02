@@ -14,6 +14,7 @@ import streamlit as st
 from core.db import DatabaseUnavailable, init_db, is_sqlite
 from core import config
 from dashboard.common import logout, remember_login, require_access
+from dashboard.nav import PAGES
 from dashboard.theme import brand_block, inject_css, theme_toggle_sidebar
 from dashboard.views import (
     access as access_view, ads, cabinets, cogs, fixed, pnl_months, products, summary, tools, uploads,
@@ -61,25 +62,34 @@ with st.sidebar:
         st.stop()
 theme_toggle_sidebar()
 
+PAGES.clear()
+
+
+def _page(fn, **kw):
+    """st.Page that other reports can open by its url_path (dashboard.nav.go)."""
+    PAGES[kw["url_path"]] = p = st.Page(fn, **kw)
+    return p
+
+
 pages = {
     "Отчёты": [
-        st.Page(summary.render, title="Финансовый результат", icon=":material/monitoring:",
-                url_path="summary", default=True),
-        st.Page(pnl_months.render, title="ОПиУ по месяцам", icon=":material/table_chart:", url_path="pnl"),
-        st.Page(products.render, title="Товары", icon=":material/inventory_2:", url_path="products"),
-        st.Page(ads.render, title="Реклама", icon=":material/campaign:", url_path="ads"),
+        _page(summary.render, title="Финансовый результат", icon=":material/monitoring:",
+              url_path="summary", default=True),
+        _page(pnl_months.render, title="ОПиУ по месяцам", icon=":material/table_chart:", url_path="pnl"),
+        _page(products.render, title="Товары", icon=":material/inventory_2:", url_path="products"),
+        _page(ads.render, title="Реклама", icon=":material/campaign:", url_path="ads"),
     ],
 }
 if acc.owner:
     pages["Данные"] = [
-        st.Page(cogs.render, title="Себестоимость", icon=":material/sell:", url_path="cogs"),
-        st.Page(fixed.render, title="Постоянные расходы", icon=":material/receipt_long:", url_path="fixed"),
-        st.Page(cabinets.render, title="Кабинеты и налоги", icon=":material/storefront:", url_path="cabinets"),
-        st.Page(uploads.render, title="Загрузка отчётов", icon=":material/upload_file:", url_path="uploads"),
-        st.Page(access_view.render, title="Доступ по ссылке", icon=":material/share:", url_path="access"),
+        _page(cogs.render, title="Себестоимость", icon=":material/sell:", url_path="cogs"),
+        _page(fixed.render, title="Постоянные расходы", icon=":material/receipt_long:", url_path="fixed"),
+        _page(cabinets.render, title="Кабинеты и налоги", icon=":material/storefront:", url_path="cabinets"),
+        _page(uploads.render, title="Загрузка отчётов", icon=":material/upload_file:", url_path="uploads"),
+        _page(access_view.render, title="Доступ по ссылке", icon=":material/share:", url_path="access"),
     ]
     pages["Доп. инструменты"] = [
-        st.Page(tools.render, title="Инструменты", icon=":material/construction:", url_path="tools"),
+        _page(tools.render, title="Инструменты", icon=":material/construction:", url_path="tools"),
     ]
 
 st.navigation(pages, position="sidebar").run()
