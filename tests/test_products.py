@@ -143,3 +143,83 @@ def test_month_without_tax_setting_is_blocking():
     issues = find_issues(facts, taxes, cabs, date(2026, 9, 1), date(2026, 10, 31),
                          {date(2026, 9, 1), date(2026, 10, 1)}, {})
     assert [i.text for i in issues if i.blocking] == ["Налоги, 09.2026: налог не считается"]
+
+
+def _g(**kw):
+    """A row after allocate_common: product_table adds status and drr_rev."""
+    r = _row(**{"storage": 0.0, "penalties": 0.0, "services": 0.0, "other": 0.0, "vat": 0.0, "tax": 0.0,
+                "ads_common": 0.0, "other_common": 0.0, **kw})
+    r["status"] = status_of(r)
+    r["drr_rev"] = -r["ads"] / r["revenue"].where(r["revenue"] > 0) * 100
+    return r
+
+
+def test_quick_selections():
+    from dashboard.views.products import attention_counts, quick_mask
+    g = pd.concat([_g(sku="1", revenue=1000, ads=-200, profit=-50, sold=1, net_qty=1),        # loss, DRR 20 %
+                   _g(sku="2", revenue=1000, ads=-50, profit=100, sold=1, net_qty=1, cost_missing_qty=1),
+                   _g(sku="3", revenue=-500, profit=-40, returned=1, net_qty=-1),            # returns only
+                   _g(sku=NO_SKU, profit=-10)], ignore_index=True)
+    assert list(quick_mask(g, "Убыточные", 10)) == [True, False, False, False]
+    assert list(quick_mask(g, "Высокий ДРР", 10)) == [True, False, False, False]
+    assert list(quick_mask(g, "Высокий ДРР", 4)) == [True, True, False, False]
+    assert list(quick_mask(g, "Нет себестоимости", 10)) == [False, True, False, False]
+    assert list(quick_mask(g, "Без продаж", 10)) == [False, False, True, False]
+    assert attention_counts(g, 10)["loss"] == 1 and attention_counts(g, 10)["high_drr"] == 1
+
+
+def test_card_lines_add_up_to_profit():
+    from dashboard.views.products import card_costs
+    r = _g(revenue=10000, commission=-3000, acquiring=-150, logistics=-800, ads=-700, ads_common=-200,
+           other_common=-100, cogs=-4000, tax=-600, profit=10000 - 3000 - 800 - 700 - 100 - 4000 - 600).iloc[0]
+    c = card_costs(r).set_index("Статья")["₽"]
+    assert c.drop(["Выручка", "Прибыль"]).sum() + c["Выручка"] == pytest.approx(c["Прибыль"])
+    assert c["Реклама по товару"] == -500 and c["Реклама «все товары»"] == -200
+
+
+def test_card_unit_table_has_three_bases():
+    from dashboard.views.products import card_unit_table
+    r = _g(revenue=10000, profit=2000, ads=-400, sold=10, net_qty=10, sales_gross=10000, ordered_qty=20,
+           ordered_sum=21000, cancelled_qty=4, unknown_qty=16).iloc[0]
+    t = card_unit_table(r).set_index("Показатель")
+    assert list(t.columns) == ["на 1 выкуп", "на 1 заказ", "на 1 сделку"]
+    assert t.loc["Прибыль", "на 1 выкуп"] == "200 ₽"
+
+
+def test_daily_adds_up_to_the_month():
+    from tests.test_details import _data
+    from pnl.engine import compute, daily, summarize
+    led = [{"cabinet_id": 1, "date": date(2026, 10, 25), "sku": "7", "category": "sale", "amount": 1000.0,
+            "qty": 1, "posting": "p1", "raw_type": "Выручка"},
+           {"cabinet_id": 1, "date": date(2026, 10, 27), "sku": "7", "category": "commission", "amount": -300.0,
+            "qty": 0, "posting": "p1", "raw_type": "Вознаграждение"},
+           {"cabinet_id": 1, "date": date(2026, 10, 27), "sku": "8", "category": "sale", "amount": 500.0,
+            "qty": 1, "posting": "p2", "raw_type": "Выручка"}]
+    d = daily(_data(led), 1, "7")
+    assert len(d) == 7 and d["revenue"].sum() == 1000 and d["result"].sum() == 700
+    assert d.set_index("date").loc[date(2026, 10, 27), "commission"] == -300
+    month = summarize(compute(_data(led)).facts, ["sku"]).set_index("sku")
+    assert month.loc["7", "revenue"] == d["revenue"].sum()
+
+
+def test_incomplete_days_are_gaps_and_tail():
+    from dashboard.views.products import incomplete_runs
+    runs = incomplete_runs(date(2026, 10, 1), date(2026, 10, 31),
+                           [(date(2026, 10, 1), date(2026, 10, 10)), (date(2026, 10, 13), date(2026, 10, 31))],
+                           complete_to=date(2026, 10, 28))
+    assert runs == [(date(2026, 10, 11), date(2026, 10, 12)), (date(2026, 10, 29), date(2026, 10, 31))]
+
+
+def test_daily_ads_use_the_period_click_shares():
+    # clicks on 24.10, the cabinet charge for them on 25.10: the day has no click statistics
+    from tests.test_details import _data
+    from pnl.engine import compute, daily, summarize
+    led = [{"cabinet_id": 1, "date": date(2026, 10, 25), "sku": None, "category": "ads_mp", "amount": -400.0,
+            "qty": 0, "posting": "", "raw_type": "Оплата за клик"}]
+    d = _data(led)
+    d.ads = pd.DataFrame([{"cabinet_id": 1, "date": date(2026, 10, 24), "sku": s, "amount": a,
+                           "kind": "alloc_cpc", "campaign_id": "c1"} for s, a in (("7", 30.0), ("8", 10.0))])
+    day = daily(d, 1, "7")
+    assert day.set_index("date").loc[date(2026, 10, 25), "ads"] == pytest.approx(-300.0)
+    month = summarize(compute(d).facts, ["sku"]).set_index("sku")
+    assert month.loc["7", "ads"] == pytest.approx(day["ads"].sum())

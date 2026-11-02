@@ -6,7 +6,7 @@ import streamlit as st
 from dashboard.common import (
     MP_NAMES, num, pct, result_for, rub, period_filters, summarize,
 )
-from dashboard.quality import quality_block, status_line
+from dashboard.quality import attention_issues, quality_block, status_line
 from dashboard.theme import kpi_card, tree_table, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
 from pnl.categories import CATEGORIES
 from pnl.engine import DETAIL_LINES
@@ -205,7 +205,10 @@ def render():
         st.warning("За период нет данных. Проверьте загрузку на странице «Кабинеты и налоги».")
         return
 
-    issues = quality_block(f, res)
+    from dashboard.views.products import attention_counts, drr_limit, product_table
+    limit = drr_limit()
+    issues = quality_block(f, res, attention_issues(attention_counts(product_table(f, res)[1], limit), limit),
+                           key="q_sum")
     final = "" if not any(i.blocking for i in issues) else " (предварительно)"
 
     cols, scopes = {}, []

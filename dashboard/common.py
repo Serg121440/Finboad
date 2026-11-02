@@ -320,9 +320,18 @@ def calc(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: 
     return compute(load(date_from, date_to, list(cabinet_ids)))
 
 
+@st.cache_data(ttl=300, show_spinner="Считаю по дням…")
+def daily_for(date_from: date, date_to: date, cabinet_id: int, sku: str, version: str = "") -> pd.DataFrame:
+    """One product by day (pnl.engine.daily) for its card."""
+    from pnl.data import load
+    from pnl.engine import daily
+    return daily(load(date_from, date_to, [cabinet_id]), cabinet_id, sku)
+
+
 def data_changed():
     """Call after edits (cost, fixed costs, settings) so pages recalculate."""
     calc.clear()
+    daily_for.clear()
 
 
 def result_for(f: Filters):
@@ -360,4 +369,4 @@ def hide_cogs_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 __all__ = ["rub", "pct", "num", "require_access", "access", "period_filters", "result_for",
            "with_names", "summarize", "data_changed", "cabinets_df", "cabinet_label", "MP_NAMES",
-           "hide_cogs_columns", "new_share_token", "hash_token", "Filters"]
+           "hide_cogs_columns", "new_share_token", "hash_token", "Filters", "daily_for", "data_version"]

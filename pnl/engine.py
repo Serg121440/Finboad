@@ -80,10 +80,14 @@ def _month(s: pd.Series) -> pd.Series:
     return pd.to_datetime(s).dt.to_period("M").dt.to_timestamp().dt.date
 
 
+def _day(s: pd.Series) -> pd.Series:
+    return pd.to_datetime(s).dt.date
+
+
 # ── ads ──────────────────────────────────────────────────────────────────────
 
-def ads_by_sku(d: Data) -> pd.DataFrame:
-    """Ad money per (cabinet_id, month, sku); sku None = общий расход кабинета.
+def ads_by_sku(d: Data, bucket=_month) -> pd.DataFrame:
+    """Ad money per (cabinet_id, month, sku); sku None = общий расход кабинета. bucket=_day: per day.
 
     Ozon: the money is the ad lines of the accrual report; click money is split by
     the click statistics per SKU, «оплата за заказ: выбранные товары» by the
@@ -93,7 +97,9 @@ def ads_by_sku(d: Data) -> pd.DataFrame:
     out = []
     led = d.ledger[d.ledger["category"] == "ads_mp"].copy()
     if not led.empty:
-        led["month"] = _month(led["date"])
+        led["month"] = bucket(led["date"])
+        # click/order shares are always monthly, as in the product table, even when money is per day
+        led["period"] = _month(led["date"])
         camp_type = {}
         if not d.campaigns.empty:
             camp_type = {(r.cabinet_id, str(r.campaign_id)): r.type for r in d.campaigns.itertuples()}
@@ -110,22 +116,23 @@ def ads_by_sku(d: Data) -> pd.DataFrame:
         led["pool"] = [pool(r) for r in led.itertuples()]
         alloc = d.ads[d.ads["kind"].isin(["alloc_cpc", "alloc_cpo"])].copy()
         if not alloc.empty:
-            alloc["month"] = _month(alloc["date"])
+            alloc["period"] = _month(alloc["date"])
             alloc["pool"] = alloc["kind"].str.replace("alloc_", "", regex=False)
-            w = alloc.groupby(["cabinet_id", "month", "pool", "sku"], as_index=False)["amount"].sum()
-            w["share"] = w["amount"] / w.groupby(["cabinet_id", "month", "pool"])["amount"].transform("sum")
+            w = alloc.groupby(["cabinet_id", "period", "pool", "sku"], as_index=False)["amount"].sum()
+            w["share"] = w["amount"] / w.groupby(["cabinet_id", "period", "pool"])["amount"].transform("sum")
         else:
-            w = pd.DataFrame(columns=["cabinet_id", "month", "pool", "sku", "share"])
+            w = pd.DataFrame(columns=["cabinet_id", "period", "pool", "sku", "share"])
 
-        money = led.groupby(["cabinet_id", "month", "pool", "sku"], dropna=False, as_index=False)["amount"].sum()
+        money = led.groupby(["cabinet_id", "month", "period", "pool", "sku"], dropna=False,
+                            as_index=False)["amount"].sum()
         direct = money[money["pool"] == "direct"][["cabinet_id", "month", "sku", "amount"]]
         out.append(direct)
         for p in ("cpc", "cpo"):
-            m = money[money["pool"] == p].groupby(["cabinet_id", "month"], as_index=False)["amount"].sum()
+            m = money[money["pool"] == p].groupby(["cabinet_id", "month", "period"], as_index=False)["amount"].sum()
             if m.empty:
                 continue
-            split = m.merge(w[w["pool"] == p][["cabinet_id", "month", "sku", "share"]],
-                            on=["cabinet_id", "month"], how="left")
+            split = m.merge(w[w["pool"] == p][["cabinet_id", "period", "sku", "share"]],
+                            on=["cabinet_id", "period"], how="left")
             has = split["share"].notna()
             split.loc[has, "amount"] = split.loc[has, "amount"] * split.loc[has, "share"]
             split.loc[~has, "sku"] = NO_SKU
@@ -136,7 +143,7 @@ def ads_by_sku(d: Data) -> pd.DataFrame:
 
     spend = d.ads[d.ads["kind"] == "spend"].copy()
     if not spend.empty:
-        spend["month"] = _month(spend["date"])
+        spend["month"] = bucket(spend["date"])
         spend["amount"] = -spend["amount"]
         out.append(spend.groupby(["cabinet_id", "month", "sku"], dropna=False, as_index=False)["amount"].sum())
 
@@ -185,12 +192,12 @@ def cogs_lines(d: Data, sales: pd.DataFrame) -> pd.DataFrame:
 
 # ── fact table ───────────────────────────────────────────────────────────────
 
-def fact_table(d: Data) -> pd.DataFrame:
-    """Rows (cabinet_id, month, sku) with money lines, quantities and cost flags."""
+def fact_table(d: Data, bucket=_month) -> pd.DataFrame:
+    """Rows (cabinet_id, month, sku) with money lines, quantities and cost flags. bucket=_day: «month» holds the day."""
     led = d.ledger.copy()
     if led.empty:
         led = pd.DataFrame(columns=["cabinet_id", "date", "sku", "category", "amount", "qty"])
-    led["month"] = _month(led["date"]) if len(led) else pd.Series(index=led.index, dtype=object)
+    led["month"] = bucket(led["date"]) if len(led) else pd.Series(index=led.index, dtype=object)
     led["line"] = led["category"].map(line_of)
     led = led[~led["line"].isin(["ads", "excluded"])]
 
@@ -214,7 +221,7 @@ def fact_table(d: Data) -> pd.DataFrame:
     q = sales.groupby(keys, dropna=False, as_index=False)[
         ["sold", "returned", "sales_gross", "cogs", "cost_missing_qty"]].sum()
 
-    ads = ads_by_sku(d)
+    ads = ads_by_sku(d, bucket)
     f = money.merge(q, on=keys, how="outer").merge(ads, on=keys, how="outer").merge(acq, on=keys, how="outer")
     for c in MONEY_LINES + ["sold", "returned", "sales_gross", "cost_missing_qty", "acquiring"]:
         if c not in f:
@@ -412,6 +419,27 @@ def compute(d: Data) -> Result:
         det = det[det["cabinet_id"].isin(sel)]
     return Result(f.reset_index(drop=True), o, fixed_costs(d), taxes, d.cabinets, d.products,
                   det.reset_index(drop=True))
+
+
+def daily(d: Data, cabinet_id: int, sku: str) -> pd.DataFrame:
+    """One product by day inside [date_from, date_to]: revenue, ads, cost of goods and the result
+    before taxes (taxes are per month and entity, they don't split by day). Days without data — zeros."""
+    d = normalize(d)
+    keep = lambda df: df[(df["cabinet_id"] == cabinet_id) & (df["sku"] == sku)] if not df.empty else df
+    ads = d.ads[(d.ads["cabinet_id"] == cabinet_id) & ((d.ads["sku"] == sku) | (d.ads["kind"] != "spend"))] \
+        if not d.ads.empty else d.ads          # click/order shares of other products are needed to split Ozon ads
+    dp = Data(**{**d.__dict__, "ledger": _in_period(d.ledger[d.ledger["cabinet_id"] == cabinet_id], d),
+                 "ads": _in_period(ads, d), "orders": _in_period(keep(d.orders), d)})
+    f = keep(fact_table(dp, _day))
+    days = pd.DataFrame({"month": pd.date_range(d.date_from, d.date_to).date})
+    cols = ["revenue", "commission", "logistics", "storage", "penalties", "services", "other", "ads", "cogs",
+            "sold", "returned"]
+    out = days.merge(f.groupby("month", as_index=False)[cols].sum(), on="month", how="left").fillna(0.0)
+    out["result"] = out[cols[:9]].sum(axis=1)
+    o = dp.orders
+    ordered = o.groupby(_day(o["date"]))["qty"].sum() if not o.empty else pd.Series(dtype=float)
+    out["ordered_qty"] = out["month"].map(ordered).fillna(0.0)
+    return out.rename(columns={"month": "date"})
 
 
 def summarize(facts: pd.DataFrame, by: list[str]) -> pd.DataFrame:

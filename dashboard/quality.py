@@ -19,6 +19,8 @@ class Issue:
     text: str
     where: str = ""        # page that fixes it
     blocking: bool = True  # the profit is not final while it's open
+    link: str = ""         # «url_path» or «url_path:quick filter» the button opens
+    button: str = ""       # its label
 
 
 def months_of(d0: date, d1: date) -> list[date]:
@@ -69,22 +71,26 @@ def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame
         m = facts[facts["cost_missing_qty"] != 0]
         if not m.empty:
             out.append(Issue(f"Нет себестоимости: {m['cost_missing_qty'].sum():.0f} шт., "
-                             f"{m['sku'].nunique()} товаров — прибыль завышена", "«Себестоимость»"))
+                             f"{m['sku'].nunique()} товаров — прибыль завышена", "«Себестоимость»",
+                             link="products:Нет себестоимости", button="Товары без себестоимости"))
     with_tax = set(taxes["entity_id"]) if not taxes.empty else set()
     no_tax = cabinets[~cabinets["entity_id"].isin(with_tax)]
     if not no_tax.empty:
         out.append(Issue("Налог не считается: " + ", ".join(no_tax["name"]) +
-                         " — нет юрлица или налогового режима", "«Кабинеты и налоги»"))
+                         " — нет юрлица или налогового режима", "«Кабинеты и налоги»",
+                         link="cabinets", button="Настроить налоги"))
     if not taxes.empty:
         for _, r in taxes[taxes["note"].fillna("") != ""].iterrows():
             # a month before the entity's first tax setting: the tax is simply missing
             missing = "не считается" in r["note"]
             out.append(Issue(f"Налоги, {pd.Timestamp(r['month']):%m.%Y}: {r['note']}",
-                             "«Кабинеты и налоги»" if missing else "", blocking=missing))
+                             "«Кабинеты и налоги»" if missing else "", blocking=missing,
+                             link="cabinets" if missing else "", button="Настроить налоги" if missing else ""))
     empty = [m for m in months_of(d0, d1) if m not in filled_months]
     if empty:
         out.append(Issue("Постоянные расходы не заполнены: " + ", ".join(f"{m:%m.%Y}" for m in empty) +
-                         " (если их нет — отметьте «расходов нет»)", "«Постоянные расходы»"))
+                         " (если их нет — отметьте «расходов нет»)", "«Постоянные расходы»",
+                         link="fixed", button="Постоянные расходы"))
     partial = [month_label(m, d0, d1) for m in months_of(d0, d1) if "неполный" in month_label(m, d0, d1)]
     if partial:
         out.append(Issue("Неполный месяц: " + ", ".join(partial) +
@@ -138,17 +144,52 @@ def issues_for(f, res) -> list[Issue]:
                        filled_fixed_months(f.date_from, f.date_to), miss, ads_miss, wb_to, end)
 
 
-def quality_block(f, res) -> list[Issue]:
-    """Status above the numbers: final or preliminary, and what's missing."""
+def attention_issues(counts: dict, drr_limit: float) -> list[Issue]:
+    """Products worth a look (not gaps in the data): counts from dashboard.views.products.attention_counts."""
+    out = []
+    if counts.get("loss"):
+        out.append(Issue(f"Убыточных товаров: {counts['loss']} — вместе {counts['loss_sum']}", blocking=False,
+                         link="products:Убыточные", button="Убыточные товары"))
+    if counts.get("high_drr"):
+        out.append(Issue(f"Высокий ДРР (больше {drr_limit:.0f} % выручки): {counts['high_drr']} товаров",
+                         blocking=False, link="products:Высокий ДРР", button="Товары с высоким ДРР"))
+    return out
+
+
+def _links(issues: list[Issue], key: str) -> None:
+    """A button per issue that has somewhere to go; pages the viewer has no access to are skipped."""
+    from dashboard.nav import can_go, go
+    todo = [i for i in issues if i.link and can_go(i.link.partition(":")[0])]
+    seen, uniq = set(), []
+    for i in todo:
+        if i.link not in seen:
+            seen.add(i.link)
+            uniq.append(i)
+    if not uniq:
+        return
+    cols = st.columns(min(len(uniq), 4))
+    for n, i in enumerate(uniq):
+        page, _, quick = i.link.partition(":")
+        if cols[n % len(cols)].button(i.button or "Открыть", key=f"{key}_{n}", icon=":material/arrow_forward:",
+                                      use_container_width=True):
+            go(page, **({"prod_quick": quick} if quick else {}))
+
+
+def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q") -> list[Issue]:
+    """Status above the numbers: final or preliminary, what's missing, and what needs attention.
+    Each line with a fix or a selection gets a button that opens it."""
     issues = issues_for(f, res)
     blocking = [i for i in issues if i.blocking]
-    lines = "\n".join(f"- {i.text}" + (f" → {i.where}" if i.where else "") for i in issues)
+    notes = issues + (extra or [])
+    lines = "\n".join(f"- {i.text}" + (f" → {i.where}" if i.where else "") for i in notes)
     if blocking:
-        st.warning(f"**Предварительный результат** — не всё учтено:\n{lines}")
-    elif issues:
-        st.info(f"**Расчёт полный.** Обратите внимание:\n{lines}")
+        st.warning(f"**Предварительный результат** — не всё учтено:\n{lines}", icon=":material/warning:")
+    elif notes:
+        st.info(f"**Расчёт полный.** Требует внимания:\n{lines}", icon=":material/info:")
     else:
-        st.success("**Расчёт полный**: себестоимость, налоги и постоянные расходы учтены, период загружен.")
+        st.success("**Расчёт полный**: себестоимость, налоги и постоянные расходы учтены, период загружен.",
+                   icon=":material/check_circle:")
+    _links(notes, key)
     return issues
 
 

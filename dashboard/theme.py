@@ -13,8 +13,13 @@ import streamlit as st
 CARD = "color-mix(in srgb, currentColor 4%, transparent)"
 BORDER = "color-mix(in srgb, currentColor 14%, transparent)"
 MUTED = "color-mix(in srgb, currentColor 62%, transparent)"
-HOVER = "rgba(139,92,246,0.08)"
-ACCENT_BG = "rgba(139,92,246,0.14)"
+HOVER = "rgba(113,50,245,0.08)"
+ACCENT_BG = "rgba(113,50,245,0.14)"
+# UI accent (buttons, tabs, focus, hover borders) — deeper than the WB purple so white
+# text on it and small accent text pass 4.5:1. Accent text is mixed with the current
+# text colour: darker in the light theme, lighter in the dark one.
+ACCENT = "#7132F5"
+ACCENT_TEXT = "color-mix(in srgb, #7132F5 70%, currentColor)"
 
 # Brand accents (одинаковы в обеих темах)
 WB_ACCENT   = "#8B5CF6"
@@ -72,7 +77,7 @@ def inject_css():
         background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
         transition: border-color 0.2s;
       }}
-      div[data-testid="stMetric"]:hover {{ border-color: {WB_ACCENT}; }}
+      div[data-testid="stMetric"]:hover {{ border-color: {ACCENT}; }}
       div[data-testid="stMetricLabel"] p {{
         color: {MUTED} !important; font-size: 10px !important; font-weight: 600 !important;
         text-transform: uppercase; letter-spacing: 0.6px;
@@ -83,7 +88,7 @@ def inject_css():
 
       /* Buttons */
       .stButton > button, .stDownloadButton > button {{ border-radius: 8px; font-weight: 500; }}
-      .stButton > button:hover, .stDownloadButton > button:hover {{ border-color: {WB_ACCENT}; }}
+      .stButton > button:hover, .stDownloadButton > button:hover {{ border-color: {ACCENT}; }}
 
       /* Expanders, uploader, tables */
       details[data-testid="stExpander"] {{ border-radius: 10px !important; }}
@@ -97,7 +102,7 @@ def inject_css():
       .stTabs [data-baseweb="tab"] {{
         background: transparent; color: {MUTED}; border-radius: 8px; padding: 8px 16px; font-weight: 500;
       }}
-      .stTabs [aria-selected="true"] {{ background: {ACCENT_BG} !important; color: {WB_ACCENT} !important; }}
+      .stTabs [aria-selected="true"] {{ background: {ACCENT_BG} !important; color: {ACCENT_TEXT} !important; }}
 
       hr {{ border-color: {BORDER} !important; }}
       .block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1400px; }}
@@ -118,7 +123,7 @@ def inject_css():
         background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
         min-height: 90px; transition: border-color .2s;
       }}
-      .fb-kpi:hover {{ border-color: {WB_ACCENT}; }}
+      .fb-kpi:hover {{ border-color: {ACCENT}; }}
       .fb-kpi-label {{
         font-size: 10px; color: {MUTED}; font-weight: 600; text-transform: uppercase;
         letter-spacing: 0.6px; margin-bottom: 8px;
@@ -132,7 +137,7 @@ def inject_css():
       .fb-pill {{
         display: inline-block; padding: 4px 10px; border-radius: 12px;
         font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
-        background: rgba(139,92,246,0.12); color: {WB_ACCENT}; border: 1px solid rgba(139,92,246,0.25);
+        background: rgba(113,50,245,0.12); color: {ACCENT_TEXT}; border: 1px solid rgba(113,50,245,0.25);
       }}
       .fb-pill-ozon {{ background: rgba(245,158,11,0.12); color: {OZON_ACCENT}; border-color: rgba(245,158,11,0.25); }}
       .fb-pill-ok   {{ background: rgba(16,185,129,0.12); color: {SUCCESS};     border-color: rgba(16,185,129,0.25); }}
