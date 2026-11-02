@@ -48,7 +48,7 @@ def totals(g: pd.DataFrame) -> dict:
 
 
 def _pp(x: float) -> str:
-    return f"{abs(x) * 100:.1f} п.п.".replace(".", ",")
+    return f"{abs(x) * 100:.1f}".replace(".", ",") + " п.п."
 
 
 def kpi_row(g: pd.DataFrame, prev: pd.DataFrame | None, label: str):

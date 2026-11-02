@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, num, pct, result_for, rub, period_filters, summarize,
+    MP_NAMES, Filters, daily_results_for, data_version, num, pct, result_for, rub, period_filters, summarize,
 )
 from dashboard.quality import attention_issues, quality_block, status_line
 from dashboard.theme import kpi_card, tree_table, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
@@ -208,7 +208,7 @@ def render():
     from dashboard.views.products import attention_counts, drr_limit, product_table
     limit = drr_limit()
     issues = quality_block(f, res, attention_issues(attention_counts(product_table(f, res)[1], limit), limit),
-                           key="q_sum")
+                           key="q_sum", compact=True)
     final = "" if not any(i.blocking for i in issues) else " (предварительно)"
 
     cols, scopes = {}, []
@@ -235,6 +235,14 @@ def render():
         n = total["net"]
         kpi_card("Чистая прибыль" + final, rub(n), f"постоянные {rub(-total['fixed'])}",
                  "up" if n >= 0 else "down", accent=OZON_ACCENT)
+
+    from dashboard.views.products_overview import previous_period
+    from dashboard.views.report_charts import summary_overview
+    p0, p1, _ = previous_period(f.date_from, f.date_to)
+    ids = tuple(sorted(f.cabinet_ids))
+    summary_overview(f, res, daily_results_for(f.date_from, f.date_to, ids, data_version()),
+                     daily_results_for(p0, p1, ids, data_version()), p0, p1)
+    st.subheader("Отчёт")
 
     if "_common" in fixed_by_mp and len(cols) > 1:
         st.caption(f"Постоянные расходы без привязки к кабинету ({rub(fixed_by_mp['_common'])}) входят только в «Всего».")

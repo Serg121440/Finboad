@@ -461,6 +461,47 @@ def daily_totals(d: Data) -> pd.DataFrame:
     return days
 
 
+def _period_data(d: Data) -> Data:
+    return Data(**{**d.__dict__, "ledger": _in_period(d.ledger, d), "ads": _in_period(d.ads, d),
+                   "orders": _in_period(d.orders, d)})
+
+
+def daily_results(d: Data) -> pd.DataFrame:
+    """Each cabinet by day inside [date_from, date_to]: money lines and the result before taxes
+    (taxes are per month and entity, they don't split by day). Only days with data."""
+    d = normalize(d)
+    f = fact_table(_period_data(d), _day)
+    sel = d.extra.get("selected")
+    if sel:
+        f = f[f["cabinet_id"].isin(sel)]
+    cols = [c for c in MONEY_LINES if c not in ("vat", "tax")]
+    g = f.groupby(["cabinet_id", "month"], as_index=False)[cols].sum().rename(columns={"month": "date"})
+    g["result"] = g[cols].sum(axis=1)
+    return g
+
+
+def ads_daily(d: Data) -> pd.DataFrame:
+    """Ad money (positive) and orders (not cancelled, ₽) per (cabinet_id, date, sku) inside the period;
+    sku '' — ad money not tied to a product."""
+    d = normalize(d)
+    dp = _period_data(d)
+    a = ads_by_sku(dp, _day).rename(columns={"month": "date"})
+    a["ads"] = -a["ads"]
+    o = dp.orders
+    if not o.empty:
+        o = o[~o["cancelled"].astype(bool)]
+        o = o.assign(date=_day(o["date"])).groupby(["cabinet_id", "date", "sku"], as_index=False)["amount"].sum() \
+            .rename(columns={"amount": "ordered_sum"})
+    else:
+        o = pd.DataFrame(columns=["cabinet_id", "date", "sku", "ordered_sum"])
+    out = a.merge(o, on=["cabinet_id", "date", "sku"], how="outer")
+    out[["ads", "ordered_sum"]] = out[["ads", "ordered_sum"]].astype(float).fillna(0.0)
+    sel = d.extra.get("selected")
+    if sel:
+        out = out[out["cabinet_id"].isin(sel)]
+    return out.reset_index(drop=True)
+
+
 def summarize(facts: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     cols = MONEY_LINES + ["mp_result", "profit", "sold", "returned", "net_qty", "sales_gross",
                           "cost_missing_qty", "acquiring"]

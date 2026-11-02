@@ -3,7 +3,10 @@
 import pandas as pd
 import streamlit as st
 
-from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, hide_cogs_columns
+from dashboard.common import (
+    MP_NAMES, daily_results_for, data_version, hide_cogs_columns, pct, result_for, rub, period_filters, summarize,
+)
+from dashboard.views.report_charts import opiu_overview
 from dashboard.quality import month_label, quality_block
 from pnl.engine import LINE_TITLES
 
@@ -29,7 +32,7 @@ def render():
         st.warning("За период нет данных.")
         return
 
-    quality_block(f, res)
+    quality_block(f, res, compact=True)
     g = summarize(facts, ["month"]).sort_values("month")
     fx = res.fixed
     if not fx.empty:
@@ -53,6 +56,11 @@ def render():
         tot = summarize(facts.assign(_k=1), ["_k"]).iloc[0]
         tot["fixed"], tot["net"] = g["fixed"].sum(), g["profit"].sum() + g["fixed"].sum()
         table["Итого"] = [pct(tot[k]) if k in ("margin", "drr") else rub(tot[k]) for k in order]
+    daily = daily_results_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
+    if mp != "Все" and not daily.empty:
+        daily = daily[daily["cabinet_id"].map(cab_mp) == code]
+    opiu_overview(facts, g, daily, months)
+    st.subheader("Статьи по месяцам")
     t = hide_cogs_columns(table.T).T.reset_index().rename(columns={"index": "Статья"})
     st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
                  column_config={"Статья": st.column_config.TextColumn(width="large")})

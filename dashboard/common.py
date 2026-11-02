@@ -341,11 +341,29 @@ def daily_totals_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...
     return daily_totals(load(date_from, date_to, list(cabinet_ids)))
 
 
+@st.cache_data(ttl=300, show_spinner="Считаю по дням…")
+def daily_results_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
+    """Each cabinet by day (pnl.engine.daily_results): money lines and the result before taxes."""
+    from pnl.data import load
+    from pnl.engine import daily_results
+    return daily_results(load(date_from, date_to, list(cabinet_ids)))
+
+
+@st.cache_data(ttl=300, show_spinner="Считаю рекламу по дням…")
+def ads_daily_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
+    """Ads and orders per cabinet, day and product (pnl.engine.ads_daily)."""
+    from pnl.data import load
+    from pnl.engine import ads_daily
+    return ads_daily(load(date_from, date_to, list(cabinet_ids)))
+
+
 def data_changed():
     """Call after edits (cost, fixed costs, settings) so pages recalculate."""
     calc.clear()
     daily_for.clear()
     daily_totals_for.clear()
+    daily_results_for.clear()
+    ads_daily_for.clear()
 
 
 def result_for(f: Filters):

@@ -4,8 +4,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dashboard.common import MP_NAMES, pct, result_for, rub, period_filters, summarize, with_names
+from dashboard.common import (
+    MP_NAMES, Filters, ads_daily_for, data_version, pct, result_for, rub, period_filters, summarize, with_names,
+)
 from dashboard.quality import quality_block
+from dashboard.views.products import drr_limit
+from dashboard.views.products_overview import previous_period
+from dashboard.views.report_charts import ads_overview
 from pnl.engine import NO_SKU
 
 
@@ -19,8 +24,14 @@ def render():
     if res.facts.empty:
         st.warning("За период нет данных.")
         return
-    quality_block(f, res)
+    quality_block(f, res, compact=True)
     facts = res.facts
+    p0, p1, label = previous_period(f.date_from, f.date_to)
+    prev = result_for(Filters(p0, p1, f.cabinet_ids, f.cabinets))
+    daily = ads_daily_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
+    named = with_names(summarize(facts, ["cabinet_id", "sku"]), f.cabinets, res.products)
+    ads_overview(res, prev, label, daily, named, f.cabinets, drr_limit())
+    st.subheader("По кабинетам")
     by_cab = summarize(facts, ["cabinet_id"])
     common = facts[facts["sku"] == NO_SKU].groupby("cabinet_id")["ads"].sum()
     rows = []
