@@ -238,3 +238,21 @@ def test_previous_period():
     from dashboard.views.products_overview import previous_period
     assert previous_period(date(2026, 10, 1), date(2026, 10, 31))[:2] == (date(2026, 9, 1), date(2026, 9, 30))
     assert previous_period(date(2026, 10, 10), date(2026, 10, 16))[:2] == (date(2026, 10, 3), date(2026, 10, 9))
+
+
+def test_per100_closes_to_result():
+    from dashboard.views.report_charts import per100
+    f = pd.DataFrame([dict(revenue=1000.0, commission=-400.0, cogs=-300.0, logistics=-100.0, ads=-90.0, vat=0.0,
+                           tax=-20.0, storage=-10.0, penalties=0.0, services=0.0, other=5.0, profit=85.0)])
+    s = per100(f)
+    assert s["Комиссия МП"] == 40 and s["Налоги"] == 2
+    assert s.sum() == pytest.approx(100 - 8.5)
+
+
+def test_week_comparison_skips_cut_weeks():
+    from dashboard.views.report_charts import _comparable, _weeks
+    days = pd.date_range("2026-10-01", "2026-10-28").date       # Thu 01.10 … Wed 28.10
+    w = _weeks(pd.DataFrame({"date": days, "revenue": 1.0, "ads": 0.0, "result": 0.0}))
+    assert list(w["days"]) == [4, 7, 7, 7, 3]
+    assert w["label"].iloc[0] == "28.09 (4 дн.)"
+    assert list(_comparable(w)["days"]) == [7, 7, 7]
