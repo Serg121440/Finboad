@@ -23,15 +23,17 @@ ACCENT_TEXT = "color-mix(in srgb, #7132F5 70%, currentColor)"
 
 # Brand accents (одинаковы в обеих темах)
 WB_ACCENT   = "#8B5CF6"
-OZON_ACCENT = "#F59E0B"
+OZON_ACCENT = "#005BFF"   # Ozon's own blue; amber stays for ads and warnings
 SUCCESS     = "#10B981"
 DANGER      = "#EF4444"
 INFO        = "#3B82F6"
+WARN        = "#F59E0B"
+ADS_COLOR   = WARN       # ad money in charts
 
 MP_COLORS = {"wb": WB_ACCENT, "ozon": OZON_ACCENT, "other": "#94A3B8"}
 MP_LABELS = {"wb": "Wildberries", "ozon": "Ozon", "other": "Прочие"}
 
-PLOTLY_PALETTE = [WB_ACCENT, OZON_ACCENT, SUCCESS, INFO, DANGER, "#EC4899", "#14B8A6", "#A855F7"]
+PLOTLY_PALETTE = [WB_ACCENT, OZON_ACCENT, "#14B8A6", "#EC4899", WARN, "#64748B", SUCCESS, DANGER]
 
 def theme_toggle_sidebar():
     with st.sidebar:
@@ -139,7 +141,7 @@ def inject_css():
         font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
         background: rgba(113,50,245,0.12); color: {ACCENT_TEXT}; border: 1px solid rgba(113,50,245,0.25);
       }}
-      .fb-pill-ozon {{ background: rgba(245,158,11,0.12); color: {OZON_ACCENT}; border-color: rgba(245,158,11,0.25); }}
+      .fb-pill-ozon {{ background: rgba(0,91,255,0.14); color: color-mix(in srgb, {OZON_ACCENT} 70%, currentColor); border-color: rgba(0,91,255,0.3); }}
       .fb-pill-ok   {{ background: rgba(16,185,129,0.12); color: {SUCCESS};     border-color: rgba(16,185,129,0.25); }}
       .fb-pill-err  {{ background: rgba(239,68,68,0.12);  color: {DANGER};      border-color: rgba(239,68,68,0.25); }}
       .fb-status {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }}
@@ -177,6 +179,7 @@ def inject_css():
       .fb-status-dot {{ width: 8px; height: 8px; border-radius: 50%; }}
       .fb-status-dot.ok  {{ background: {SUCCESS}; box-shadow: 0 0 8px {SUCCESS}; }}
       .fb-status-dot.err {{ background: {DANGER}; }}
+      .fb-status-dot.off {{ background: {WARN}; }}
     </style>
     """)
 
@@ -252,9 +255,11 @@ def sparkline(values, color=WB_ACCENT, height: int = 40):
 
 
 def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted",
-             trend: list | None = None, accent: str = WB_ACCENT):
-    """KPI card with optional sparkline trend. delta_color: 'up' (green), 'down' (red), 'muted'."""
-    arrow = {"up": "▲ ", "down": "▼ "}.get(delta_color, "") if delta else ""
+             trend: list | None = None, accent: str = WB_ACCENT, arrow: str | None = None):
+    """KPI card with optional sparkline trend. delta_color: 'up' (green), 'down' (red), 'muted'.
+    arrow: '▲ ' / '▼ ' when the direction differs from the colour (ДРР going down is good)."""
+    if arrow is None:
+        arrow = {"up": "▲ ", "down": "▼ "}.get(delta_color, "") if delta else ""
     st.markdown(f"""
     <div class="fb-kpi">
       <div class="fb-kpi-label">{label}</div>

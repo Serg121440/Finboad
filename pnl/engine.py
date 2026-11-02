@@ -442,6 +442,25 @@ def daily(d: Data, cabinet_id: int, sku: str) -> pd.DataFrame:
     return out.rename(columns={"month": "date"})
 
 
+def daily_totals(d: Data) -> pd.DataFrame:
+    """All products by day inside [date_from, date_to]: orders (not cancelled), ₽ and pcs, by order date,
+    and ad money (as in the P&L, a cost: negative) by accrual date. Days without data — zeros."""
+    d = normalize(d)
+    days = pd.DataFrame({"date": pd.date_range(d.date_from, d.date_to).date})
+    o = _in_period(d.orders, d)
+    if not o.empty:
+        o = o[~o["cancelled"].astype(bool)]
+        o = o.groupby(_day(o["date"])).agg(ordered_sum=("amount", "sum"), ordered_qty=("qty", "sum"))
+        days = days.merge(o, left_on="date", right_index=True, how="left")
+    a = ads_by_sku(d, _day)
+    if not a.empty:
+        a = a[(a["month"] >= d.date_from) & (a["month"] <= d.date_to)].groupby("month")["ads"].sum()
+        days["ads"] = days["date"].map(a)
+    for c in ("ordered_sum", "ordered_qty", "ads"):
+        days[c] = days[c].fillna(0.0) if c in days else 0.0
+    return days
+
+
 def summarize(facts: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     cols = MONEY_LINES + ["mp_result", "profit", "sold", "returned", "net_qty", "sales_gross",
                           "cost_missing_qty", "acquiring"]

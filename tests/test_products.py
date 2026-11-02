@@ -223,3 +223,18 @@ def test_daily_ads_use_the_period_click_shares():
     assert day.set_index("date").loc[date(2026, 10, 25), "ads"] == pytest.approx(-300.0)
     month = summarize(compute(d).facts, ["sku"]).set_index("sku")
     assert month.loc["7", "ads"] == pytest.approx(day["ads"].sum())
+
+
+def test_product_group():
+    from dashboard.views.products_overview import product_group
+    assert product_group("Шведская стенка, детский спортивный комплекс") == "Шведская стенка"
+    assert product_group("Беговая дорожка Perfetto sport") == "Беговая дорожка"
+    assert product_group("Батут Perfetto sport детский") == "Батут"
+    assert product_group("") == "—"
+
+
+def test_previous_period():
+    from datetime import date
+    from dashboard.views.products_overview import previous_period
+    assert previous_period(date(2026, 10, 1), date(2026, 10, 31))[:2] == (date(2026, 9, 1), date(2026, 9, 30))
+    assert previous_period(date(2026, 10, 10), date(2026, 10, 16))[:2] == (date(2026, 10, 3), date(2026, 10, 9))

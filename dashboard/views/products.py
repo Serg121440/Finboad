@@ -13,9 +13,11 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, hide_cogs_columns, result_for, period_filters, rub, summarize, with_names,
+    MP_NAMES, Filters, daily_totals_for, data_version, hide_cogs_columns, result_for, period_filters, rub,
+    summarize, with_names,
 )
 from dashboard.quality import attention_issues, quality_block, status_line
+from dashboard.views.products_overview import NO_SALES, overview, previous_period
 from pnl.engine import LINE_TITLES, NO_SKU, ORDER_COLS
 
 BASES = {
@@ -213,22 +215,6 @@ def views(per: str, to: str) -> dict[str, list[str] | None]:
     }
 
 
-def _summary_strip(g: pd.DataFrame, limit: float):
-    items = g[g["sku"] != NO_SKU]
-    prof = items[items["status"] == "прибыль"]
-    loss = items[quick_mask(items, "Убыточные", limit)]
-    nocost = items[items["cost_missing_qty"] != 0]
-    common = (g["ads_common"] + g["other_common"]).sum() + g.loc[g["sku"] == NO_SKU, "profit"].sum()
-    c = st.columns(4)
-    c[0].metric("Прибыльных товаров", f"{len(prof)}", rub(prof["profit"].sum()), delta_color="off", delta_arrow="off")
-    c[1].metric("Убыточных товаров", f"{len(loss)}", rub(loss["profit"].sum()), delta_color="off", delta_arrow="off")
-    c[2].metric("Без себестоимости", f"{len(nocost)}", "прибыль завышена" if len(nocost) else "всё заполнено",
-                delta_color="off", delta_arrow="off")
-    c[3].metric("Общие расходы МП", rub(common), "распределены по товарам", delta_color="off", delta_arrow="off",
-                help="Реклама «все товары» и расходы кабинета без товара (хранение, услуги, логистика без SKU). "
-                     "Входят в прибыль товаров — см. «Сверка с итогом кабинета» ниже.")
-
-
 def render():
     st.title("Товары")
     f = period_filters()
@@ -241,8 +227,8 @@ def render():
     st.caption(f"Суммы в ₽ — факт по начислениям за период, от выбора не зависят. {note}")
     days = (f.date_to - f.date_from).days + 1
     if days < SHORT_PERIOD_DAYS:
-        st.warning(f"Период {days} дн.: выкупают в основном заказы прошлых недель, а заказы периода "
-                   "ещё в пути. Юнит-экономику смотрите за месяц.")
+        st.caption(f":material/info: Период {days} дн.: выкупают в основном заказы прошлых недель, а заказы "
+                   "периода ещё в пути. Юнит-экономику смотрите за месяц.")
     res = result_for(f)
     if res.facts.empty:
         st.warning("За период нет данных.")
@@ -250,8 +236,15 @@ def render():
     before, g = product_table(f, res)
     limit = drr_limit()
     issues = quality_block(f, res, [i for i in attention_issues(attention_counts(g, limit), limit)
-                                    if "Высокий" in i.text], key="q_prod")
+                                    if "Высокий" in i.text], key="q_prod", compact=True)
     u = unit_economics(g, base)
+
+    p0, p1, label = previous_period(f.date_from, f.date_to)
+    pres = result_for(Filters(p0, p1, f.cabinet_ids, f.cabinets))
+    prev = None if pres.facts.empty else product_table(Filters(p0, p1, f.cabinet_ids, f.cabinets), pres)[1]
+    daily = daily_totals_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
+    overview(g, before, prev, label, daily)
+    st.subheader("Все товары")
 
     mps = [m for m in ("ozon", "wb") if (g["marketplace"] == m).any()]
     if st.session_state.get("prod_mp") not in ["Все"] + mps:
@@ -263,7 +256,6 @@ def render():
     mp = c4.selectbox("Площадка", ["Все"] + mps, key="prod_mp", format_func=lambda m: MP_NAMES.get(m, m),
                       disabled=len(mps) < 2)
     scope = g if mp == "Все" else g[g["marketplace"] == mp]
-    _summary_strip(scope, limit)
 
     # set before the widgets (a value + key from another page must not clash with a default)
     st.session_state.setdefault("prod_quick", "Все")
@@ -292,7 +284,9 @@ def render():
         return
     by, asc = {"Прибыль ↑": ("profit", True), "Прибыль ↓": ("profit", False),
                "Выручка ↓": ("revenue", False), "ДРР ↓": ("u_drr", False)}[sort]
-    v = v.sort_values(by, ascending=asc).reset_index(drop=True)
+    # products without sales carry only storage and spread ads: they go last, not on top of «Прибыль ↑»
+    v = v.assign(_idle=v["status"].isin(NO_SALES)).sort_values(["_idle", by], ascending=[True, asc]) \
+        .drop(columns="_idle").reset_index(drop=True)
 
     out = pd.DataFrame({
         "Артикул": v["article"], "Товар": v["name"], "Статус": v["status"],
@@ -349,15 +343,17 @@ def render():
                                                                   help="Полное название — в карточке товара"),
                              **{c: st.column_config.TextColumn(alignment="right") for c in blank},
                          })
-    st.caption(
-        f"Товаров: {len(out)}. Нажмите на строку — ниже откроется карточка товара. «—» — показатель не "
-        f"применяется: нет продаж (не на что делить), нет заказов или только возвраты. От выбора выше зависят "
-        f"колонки «{per}» и «{to}». «% выкупа заказов» — доставлено / (доставлено + отменено) среди заказов "
-        "периода; заказы в пути не учитываются. «только возвраты» — продаж нет, вернули проданное раньше: "
-        "выручка и комиссия сторнируются, себестоимость возвращается. «Реклама «все товары»» и «Общие расходы "
-        "МП» — расходы кабинета без товара, распределённые по товарам (см. ниже); они входят в прибыль и ДРР. "
-        "Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. «нет в каталоге» — карточка не найдена "
-        "в кабинете, название подтянется при следующей загрузке.")
+    st.caption(f"Товаров: {len(out)}. Нажмите на строку — ниже откроется карточка товара.")
+    with st.expander("Как читать таблицу"):
+        st.caption(
+            f"«—» — показатель не "
+            f"применяется: нет продаж (не на что делить), нет заказов или только возвраты. От выбора выше зависят "
+            f"колонки «{per}» и «{to}». «% выкупа заказов» — доставлено / (доставлено + отменено) среди заказов "
+            "периода; заказы в пути не учитываются. «только возвраты» — продаж нет, вернули проданное раньше: "
+            "выручка и комиссия сторнируются, себестоимость возвращается. «Реклама «все товары»» и «Общие расходы "
+            "МП» — расходы кабинета без товара, распределённые по товарам (см. ниже); они входят в прибыль и ДРР. "
+            "Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. «нет в каталоге» — карточка не найдена "
+            "в кабинете, название подтянется при следующей загрузке.")
 
     rows = event.selection.rows if event and event.selection else []
     if rows and rows[0] < len(v):
@@ -512,7 +508,18 @@ def product_card(row: pd.Series, f, base: str):
 
 
 def _reconciliation(before: pd.DataFrame, after: pd.DataFrame):
-    st.subheader("Сверка с итогом кабинета")
+    bad = []
+    for cab, part in before.groupby("cabinet"):
+        a = after[after["cabinet"] == cab]
+        if abs(a["profit"].sum() - part["profit"].sum()) >= 1:
+            bad.append(cab)
+    title = ("Сверка с итогом кабинета: всё сходится" if not bad else
+             f"Сверка с итогом кабинета: расхождение — {', '.join(bad)}")
+    with st.expander(title, icon=":material/check_circle:" if not bad else ":material/warning:", expanded=bool(bad)):
+        _reconciliation_lines(before, after)
+
+
+def _reconciliation_lines(before: pd.DataFrame, after: pd.DataFrame):
     for cab, part in before.groupby("cabinet"):
         total = part["profit"].sum()
         a = after[after["cabinet"] == cab]
