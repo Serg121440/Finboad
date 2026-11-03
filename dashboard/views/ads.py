@@ -20,6 +20,14 @@ def render():
     if f is None:
         st.info("Кабинетов пока нет.")
         return
+    mps = [m for m in ("ozon", "wb") if (f.cabinets[f.cabinets["id"].isin(f.cabinet_ids)]["marketplace"] == m).any()]
+    if len(mps) > 1:
+        pick = st.segmented_control("Площадка", ["Все"] + [MP_NAMES[m] for m in mps], key="ads_mp",
+                                    default="Все", label_visibility="collapsed") or "Все"
+        if pick != "Все":
+            code = {v: k for k, v in MP_NAMES.items()}[pick]
+            ids = f.cabinets[f.cabinets["id"].isin(f.cabinet_ids) & (f.cabinets["marketplace"] == code)]["id"].tolist()
+            f = Filters(f.date_from, f.date_to, ids, f.cabinets)
     res = result_for(f)
     if res.facts.empty:
         st.warning("За период нет данных.")
