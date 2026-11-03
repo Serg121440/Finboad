@@ -68,6 +68,8 @@ def inject_css():
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
       }}
 
+      .fb-spark {{ display: block; width: 100%; height: 30px; margin-top: 8px; }}
+
       /* Headings */
       h1, h2, h3, h4 {{ letter-spacing: -0.01em; font-weight: 700 !important; }}
       h1 {{ font-size: 28px !important; }}
@@ -260,15 +262,23 @@ def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted"
     arrow: '▲ ' / '▼ ' when the direction differs from the colour (ДРР going down is good)."""
     if arrow is None:
         arrow = {"up": "▲ ", "down": "▼ "}.get(delta_color, "") if delta else ""
+    spark = ""
+    vals = [float(v) for v in trend or [] if v == v]          # NaN != NaN
+    if len(vals) > 1:
+        lo, hi = min(vals), max(vals)
+        pts = " ".join(f"{i / (len(vals) - 1) * 120:.1f},{28 - (v - lo) / ((hi - lo) or 1) * 26:.1f}"
+                       for i, v in enumerate(vals))
+        # inside the card, as on the mockup; the line keeps its width whatever the card's width
+        spark = (f'<svg class="fb-spark" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true">'
+                 f'<polyline points="{pts}" fill="none" stroke="{accent}" stroke-width="1.6" '
+                 f'vector-effect="non-scaling-stroke"/></svg>')
+    elif trend is not None:                                   # same height as its neighbours with a line
+        spark = '<div class="fb-spark"></div>'
     st.markdown(f"""
     <div class="fb-kpi">
       <div class="fb-kpi-label">{label}</div>
       <div class="fb-kpi-value">{value}</div>
       <div class="fb-kpi-delta {delta_color}">{arrow}{delta}&nbsp;</div>
+      {spark}
     </div>
     """, unsafe_allow_html=True)
-
-    if trend and len(trend) > 1:
-        st.plotly_chart(sparkline(trend, color=accent, height=36),
-                        use_container_width=True, config={"displayModeBar": False},
-                        key=f"spark_{label.replace(' ', '_').replace('(', '').replace(')', '')}")
