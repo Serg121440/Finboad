@@ -256,3 +256,17 @@ def test_week_comparison_skips_cut_weeks():
     assert list(w["days"]) == [4, 7, 7, 7, 3]
     assert w["label"].iloc[0] == "28.09 (4 дн.)"
     assert list(_comparable(w)["days"]) == [7, 7, 7]
+
+
+def test_ozon_report_columns_by_start():
+    from sources.ozon_api import _col
+    row = {"Показы": "1 200", "Клики": "30", "CTR (%)": "2,5", "Ср. цена клика, ₽": "17"}
+    assert _col(row, "Показы") == "1 200" and _col(row, "Клики") == "30" and _col(row, "Заказы") is None
+
+
+def test_click_kpis_from_daily():
+    from dashboard.views.report_charts import _clicks
+    d = pd.DataFrame({"views": [1000.0, 0.0], "clicks": [25.0, 0.0], "click_money": [500.0, 0.0]})
+    ctr, cpc = _clicks(d)
+    assert ctr == pytest.approx(0.025) and cpc == pytest.approx(20)
+    assert pd.isna(_clicks(d.iloc[1:])[0])

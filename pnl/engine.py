@@ -482,7 +482,8 @@ def daily_results(d: Data) -> pd.DataFrame:
 
 def ads_daily(d: Data) -> pd.DataFrame:
     """Ad money (positive) and orders (not cancelled, ₽) per (cabinet_id, date, sku) inside the period;
-    sku '' — ad money not tied to a product."""
+    sku '' — ad money not tied to a product. views / clicks / click_money — the ad statistics behind
+    CTR and the cost of a click (zeros where the statistics were loaded before they were stored)."""
     d = normalize(d)
     dp = _period_data(d)
     a = ads_by_sku(dp, _day).rename(columns={"month": "date"})
@@ -494,8 +495,18 @@ def ads_daily(d: Data) -> pd.DataFrame:
             .rename(columns={"amount": "ordered_sum"})
     else:
         o = pd.DataFrame(columns=["cabinet_id", "date", "sku", "ordered_sum"])
-    out = a.merge(o, on=["cabinet_id", "date", "sku"], how="outer")
-    out[["ads", "ordered_sum"]] = out[["ads", "ordered_sum"]].astype(float).fillna(0.0)
+    # impressions and clicks of the ad statistics (Ozon CPC, WB); the money stays from ads_by_sku
+    seen = dp.ads[dp.ads["kind"].isin(["alloc_cpc", "spend"])] if not dp.ads.empty else dp.ads
+    if not seen.empty and "views" in seen:
+        seen = seen.assign(date=_day(seen["date"]), views=seen["views"].fillna(0), clicks=seen["clicks"].fillna(0),
+                           click_money=seen["amount"].fillna(0))
+        seen = seen.groupby(["cabinet_id", "date", "sku"], as_index=False)[["views", "clicks", "click_money"]].sum()
+    else:
+        seen = pd.DataFrame(columns=["cabinet_id", "date", "sku", "views", "clicks", "click_money"])
+    out = a.merge(o, on=["cabinet_id", "date", "sku"], how="outer") \
+        .merge(seen, on=["cabinet_id", "date", "sku"], how="outer")
+    cols = ["ads", "ordered_sum", "views", "clicks", "click_money"]
+    out[cols] = out[cols].astype(float).fillna(0.0)
     sel = d.extra.get("selected")
     if sel:
         out = out[out["cabinet_id"].isin(sel)]

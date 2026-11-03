@@ -40,9 +40,9 @@ def load(date_from: date, date_to: date, cabinet_ids: list[int] | None = None) -
                         LedgerEntry.date <= date_to),
                  ["cabinet_id", "date", "sku", "category", "amount", "qty", "posting", "raw_type"])
     ads = _frame(select(AdSpend.cabinet_id, AdSpend.date, AdSpend.sku, AdSpend.amount, AdSpend.kind,
-                        AdSpend.campaign_id)
+                        AdSpend.campaign_id, AdSpend.views, AdSpend.clicks)
                  .where(AdSpend.cabinet_id.in_(tax_ids), AdSpend.date >= start, AdSpend.date <= date_to),
-                 ["cabinet_id", "date", "sku", "amount", "kind", "campaign_id"])
+                 ["cabinet_id", "date", "sku", "amount", "kind", "campaign_id", "views", "clicks"])
     camps = _frame(select(AdCampaign.cabinet_id, AdCampaign.campaign_id, AdCampaign.type, AdCampaign.name)
                    .where(AdCampaign.cabinet_id.in_(tax_ids)), ["cabinet_id", "campaign_id", "type"])
     orders = _frame(select(OrderLine.cabinet_id, OrderLine.date, OrderLine.sku, OrderLine.qty,

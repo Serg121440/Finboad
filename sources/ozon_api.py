@@ -260,9 +260,11 @@ class PerformanceClient:
                     if not sku.isdigit() or not day:
                         continue
                     spend = _num(r.get("Расход, ₽, с НДС") or r.get("Расход, ₽"))
-                    if spend:
+                    views, clicks = int(_num(_col(r, "Показы"))), int(_num(_col(r, "Клики")))
+                    if spend or views:
                         out.append({"campaign_id": cid, "date": _parse_day(day), "sku": sku,
-                                    "amount": spend, "name": (r.get("Название товара") or "").strip()})
+                                    "amount": spend, "views": views, "clicks": clicks,
+                                    "name": (r.get("Название товара") or "").strip()})
         return out
 
     def cpo_orders(self, date_from: date, date_to: date) -> list[dict]:
@@ -278,6 +280,14 @@ class PerformanceClient:
             if sku.isdigit() and day and spend:
                 out.append({"date": _parse_day(day), "sku": sku, "amount": spend})
         return out
+
+
+def _col(row: dict, name: str):
+    """A report column by its start: «Показы», «Клики» (the exact header differs between report versions)."""
+    for k, v in row.items():
+        if k and k.strip().startswith(name):
+            return v
+    return None
 
 
 def _msk_from(d: date) -> str:

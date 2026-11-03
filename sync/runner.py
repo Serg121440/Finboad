@@ -215,6 +215,7 @@ def sync_ozon(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams)
                 for r in perf.cpc_sku_daily(cpc_ids, a, b):
                     rows.append({"date": r["date"], "campaign_id": r["campaign_id"], "sku": r["sku"],
                                  "amount": r["amount"], "kind": "alloc_cpc", "campaign_type": "cpc",
+                                 "views": r.get("views", 0), "clicks": r.get("clicks", 0),
                                  "source_key": f"cpc:{r['campaign_id']}:{r['date']}:{r['sku']}"})
                 if any(camps.get(cid, {}).get("advObjectType") == "SEARCH_PROMO" and v > 0
                        for cid, v in spent.items()):
@@ -315,6 +316,7 @@ def sync_wb(cab: Cabinet, keys: dict, date_from: date, date_to: date, streams) -
             spend = client.ad_spend(list(camps), date_from, date_to)
             rows = [{"date": r["date"], "campaign_id": r["campaign_id"], "sku": r["sku"],
                      "amount": round(r["amount"], 2), "kind": "spend", "campaign_type": "wb",
+                     "views": r.get("views", 0), "clicks": r.get("clicks", 0),
                      "source_key": f"wb:{r['campaign_id']}:{r['date']}:{r['sku']}"} for r in spend]
             n = store.replace_ads(cab.id, date_from, date_to, rows, ("spend",))
             run.done(n)

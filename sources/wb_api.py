@@ -144,7 +144,7 @@ class WbClient:
         return out
 
     def ad_spend(self, campaign_ids: list[str], date_from: date, date_to: date) -> list[dict]:
-        """[{campaign_id, date, sku, amount}] from /adv/v3/fullstats (≤50 ids, ≤31 days)."""
+        """[{campaign_id, date, sku, amount, views, clicks}] from /adv/v3/fullstats (≤50 ids, ≤31 days)."""
         out = []
         start = date_from
         while start <= date_to:
@@ -158,16 +158,20 @@ class WbClient:
                     cid = str(camp.get("advertId"))
                     for day in camp.get("days") or []:
                         d = date.fromisoformat(day["date"][:10])
-                        per_nm = {}
+                        per_nm, seen = {}, {}
                         for app in day.get("apps") or []:
                             for nm in app.get("nms") or app.get("nm") or []:
                                 key = str(nm.get("nmId"))
                                 per_nm[key] = per_nm.get(key, 0.0) + float(nm.get("sum") or 0)
+                                v, c = seen.get(key, (0, 0))
+                                seen[key] = (v + int(nm.get("views") or 0), c + int(nm.get("clicks") or 0))
                         spread = sum(per_nm.values())
                         total = float(day.get("sum") or 0)
                         for sku, amount in per_nm.items():
-                            if amount:
-                                out.append({"campaign_id": cid, "date": d, "sku": sku, "amount": amount})
+                            views, clicks = seen.get(sku, (0, 0))
+                            if amount or views:
+                                out.append({"campaign_id": cid, "date": d, "sku": sku, "amount": amount,
+                                            "views": views, "clicks": clicks})
                         if total - spread > 0.01:
                             out.append({"campaign_id": cid, "date": d, "sku": None,
                                         "amount": total - spread})
