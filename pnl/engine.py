@@ -498,8 +498,11 @@ def ads_daily(d: Data) -> pd.DataFrame:
     # impressions and clicks of the ad statistics (Ozon CPC, WB); the money stays from ads_by_sku
     seen = dp.ads[dp.ads["kind"].isin(["alloc_cpc", "spend"])] if not dp.ads.empty else dp.ads
     if not seen.empty and "views" in seen:
-        seen = seen.assign(date=_day(seen["date"]), views=seen["views"].fillna(0), clicks=seen["clicks"].fillna(0),
-                           click_money=seen["amount"].fillna(0))
+        views, clicks = seen["views"].fillna(0), seen["clicks"].fillna(0)
+        # rows loaded before impressions were stored keep their money out of the cost of a click
+        measured = (views > 0) | (clicks > 0)
+        seen = seen.assign(date=_day(seen["date"]), views=views, clicks=clicks,
+                           click_money=seen["amount"].fillna(0).where(measured, 0.0))
         seen = seen.groupby(["cabinet_id", "date", "sku"], as_index=False)[["views", "clicks", "click_money"]].sum()
     else:
         seen = pd.DataFrame(columns=["cabinet_id", "date", "sku", "views", "clicks", "click_money"])

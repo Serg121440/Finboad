@@ -270,3 +270,24 @@ def test_click_kpis_from_daily():
     ctr, cpc = _clicks(d)
     assert ctr == pytest.approx(0.025) and cpc == pytest.approx(20)
     assert pd.isna(_clicks(d.iloc[1:])[0])
+
+
+def test_cost_per_click_ignores_rows_without_statistics():
+    from datetime import date as _d
+    from pnl.engine import Data, ads_daily
+    empty = lambda cols: pd.DataFrame(columns=cols)
+    ads = pd.DataFrame([
+        dict(cabinet_id=1, date=_d(2026, 10, 1), sku="1", amount=500.0, kind="spend", campaign_id="7",
+             views=None, clicks=None),
+        dict(cabinet_id=1, date=_d(2026, 10, 2), sku="1", amount=500.0, kind="spend", campaign_id="7",
+             views=1000, clicks=25)])
+    d = Data(cabinets=pd.DataFrame({"id": [1], "marketplace": ["wb"], "name": ["x"], "entity_id": [None]}),
+             entities=empty(["id"]), tax_settings=empty(["entity_id"]),
+             ledger=empty(["cabinet_id", "date", "sku", "category", "amount", "qty", "posting", "raw_type"]),
+             ads=ads, campaigns=empty(["cabinet_id", "campaign_id", "type"]),
+             orders=empty(["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"]),
+             products=empty(["cabinet_id", "sku", "article", "name"]), cogs=empty(["article"]),
+             fixed=empty(["entity_id"]), date_from=_d(2026, 10, 1), date_to=_d(2026, 10, 31))
+    a = ads_daily(d)
+    assert a["ads"].sum() == 1000
+    assert a["click_money"].sum() / a["clicks"].sum() == 20
