@@ -33,6 +33,10 @@ def _pct(x: float, nd: int = 1) -> str:
     return f"{x:.{nd}f}".replace(".", ",")
 
 
+def _int(x: float) -> str:
+    return f"{int(x):,}".replace(",", "\u00a0")
+
+
 def _loaded(days: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     """Days after the last one with data are not zeros, they are not loaded yet."""
     has = days[(days[cols] != 0).any(axis=1)]
@@ -325,7 +329,7 @@ def ctr_heatmap(daily: pd.DataFrame, names: pd.DataFrame):
                 continue
             ctr = c / v * 100
             cells.append((next(col for hi, col, _ in CTR_BINS if ctr <= hi),
-                          f"{day:%d.%m}: CTR {_pct(ctr)} % · показы {int(v):,} · клики {int(c):,}".replace(",", " ")))
+                          f"{day:%d.%m}: CTR {_pct(ctr)} % · показы {_int(v)} · клики {_int(c)}"))
         name, art, mp = _label(names, cid, sku)
         ctr = row["clicks"] / row["views"] * 100
         rows.append({"name": name, "art": art, "mp": mp, "cells": cells, "total": f"{_pct(ctr)} %", "bad": ctr < 1})

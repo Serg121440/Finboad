@@ -319,3 +319,8 @@ def test_zero_spend_statistics_do_not_split_ad_money():
     a = ads_daily(d)
     assert a["ads"].sum() == 500
     assert a["views"].sum() == 200
+
+
+def test_ctr_tooltip_keeps_decimal_comma():
+    from dashboard.views.report_charts import _int, _pct
+    assert _pct(1.3) == "1,3" and _int(17347) == "17 347"
