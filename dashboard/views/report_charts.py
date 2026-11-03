@@ -201,7 +201,9 @@ def _top_skus(daily: pd.DataFrame) -> pd.DataFrame:
 
 
 def _days(daily: pd.DataFrame) -> list:
-    last = daily.loc[(daily["ads"] != 0) | (daily["ordered_sum"] != 0), "date"].max()
+    # Ozon click statistics are loaded apart from the accruals and may reach further: they count too
+    seen = daily["views"] != 0 if "views" in daily else False
+    last = daily.loc[(daily["ads"] != 0) | (daily["ordered_sum"] != 0) | seen, "date"].max()
     return [x for x in sorted(daily["date"].unique()) if x <= last]
 
 

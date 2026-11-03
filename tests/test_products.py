@@ -291,3 +291,11 @@ def test_cost_per_click_ignores_rows_without_statistics():
     a = ads_daily(d)
     assert a["ads"].sum() == 1000
     assert a["click_money"].sum() / a["clicks"].sum() == 20
+
+
+def test_heatmap_days_reach_the_last_impressions():
+    from datetime import date as _d
+    from dashboard.views.report_charts import _days
+    daily = pd.DataFrame({"date": [_d(2026, 10, 1), _d(2026, 10, 2), _d(2026, 10, 3)],
+                          "ads": [10.0, 0.0, 0.0], "ordered_sum": [0.0, 0.0, 0.0], "views": [100.0, 80.0, 0.0]})
+    assert _days(daily) == [_d(2026, 10, 1), _d(2026, 10, 2)]
