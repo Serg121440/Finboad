@@ -69,19 +69,32 @@ def _ads_totals(facts: pd.DataFrame, orders: pd.DataFrame) -> dict:
 
 
 def _daily_series(daily: pd.DataFrame) -> pd.DataFrame:
-    t = daily.groupby("date")[["ads", "ordered_sum"]].sum().reset_index()
+    t = daily.groupby("date")[["ads", "ordered_sum", "views", "clicks", "click_money"]].sum().reset_index()
     t = _loaded(t, ["ads", "ordered_sum"])
     r = t[["ads", "ordered_sum"]].rolling(WINDOW, min_periods=1).sum()
     t["drr"] = np.where(r["ordered_sum"] > 0, r["ads"] / r["ordered_sum"] * 100, np.nan)
+    t["ctr"] = np.where(t["views"] > 0, t["clicks"] / t["views"] * 100, np.nan)
+    t["cpc"] = np.where(t["clicks"] > 0, t["click_money"] / t["clicks"], np.nan)
     return t
 
 
-def ads_kpis(res, prev, label: str, daily: pd.DataFrame):
+def _clicks(daily: pd.DataFrame | None) -> tuple[float, float]:
+    """CTR (share) and cost of a click for the period; NaN without impressions."""
+    if daily is None or daily.empty or daily["views"].sum() <= 0:
+        return np.nan, np.nan
+    v, c, m = daily["views"].sum(), daily["clicks"].sum(), daily["click_money"].sum()
+    return c / v, m / c if c > 0 else np.nan
+
+
+def ads_kpis(res, prev, label: str, daily: pd.DataFrame, prev_daily: pd.DataFrame | None = None):
     t = _ads_totals(res.facts, res.orders)
     s = _daily_series(daily)
     spend, drr = s["ads"].tolist(), s["drr"].dropna().tolist()
     p = _ads_totals(prev.facts, prev.orders) if prev is not None and not prev.facts.empty else None
-    c = st.columns(4)
+    ctr, cpc = _clicks(daily)
+    pctr, pcpc = _clicks(prev_daily)
+    has_ctr = pd.notna(ctr)
+    c = st.columns(5 if has_ctr else 4)
     with c[0]:
         d = t["ads"] / p["ads"] - 1 if p and p["ads"] > 0 else None
         # spending more is neither good nor bad by itself: the arrow without a colour
@@ -96,9 +109,24 @@ def ads_kpis(res, prev, label: str, daily: pd.DataFrame):
                      arrow=("▼ " if d < 0 else "▲ ") if d else None,
                      trend=drr if key == "drr_orders" else [],
                      accent=SUCCESS if d is not None and d < 0 else DANGER)
+    if not has_ctr:
+        with c[3]:
+            kpi_card("Не делится по товарам", f"{_pct(t['common'] * 100, 0)} %" if pd.notna(t["common"]) else "—",
+                     "«оплата за заказ — все товары» и т. п.", "muted", trend=[])
+        return
     with c[3]:
-        kpi_card("Не делится по товарам", f"{_pct(t['common'] * 100, 0)} %" if pd.notna(t["common"]) else "—",
-                 "«оплата за заказ — все товары» и т. п.", "muted", trend=[])
+        d = ctr - pctr if pd.notna(pctr) else None
+        kpi_card("CTR", f"{_pct(ctr * 100, 2)} %", f"{_pp(d)} {label}" if d is not None else "клики / показы",
+                 "up" if d is not None and d > 0 else "down" if d else "muted",
+                 trend=s["ctr"].dropna().tolist(), accent=SUCCESS if d is None or d >= 0 else DANGER)
+    with c[4]:
+        d = cpc - pcpc if pd.notna(cpc) and pd.notna(pcpc) else None
+        # a dearer click is the bad direction
+        kpi_card("Цена клика", f"{_pct(cpc, 1)} ₽" if pd.notna(cpc) else "—",
+                 f"{_pct(abs(d), 1)} ₽ {label}" if d is not None else "расход с кликами / клики",
+                 "down" if d is not None and d > 0 else "up" if d else "muted",
+                 arrow=("▲ " if d > 0 else "▼ ") if d else None,
+                 trend=s["cpc"].dropna().tolist(), accent=DANGER if d is not None and d > 0 else SUCCESS)
 
 
 def ads_daily_chart(daily: pd.DataFrame, cabinets: pd.DataFrame, limit: float):
@@ -164,58 +192,43 @@ def _esc(s) -> str:
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def drr_heatmap(daily: pd.DataFrame, names: pd.DataFrame, limit: float):
-    """Products with the most ad money × day, as a grid of cells; colour — ДРР к заказам over the last
-    WINDOW days, in steps around the limit."""
+def _top_skus(daily: pd.DataFrame) -> pd.DataFrame:
+    """The products with the most ad money: the same rows on both heatmaps."""
     d = daily[daily["sku"] != NO_SKU]
-    if d.empty or d["ads"].sum() == 0:
-        return
-    last = daily.loc[(daily["ads"] != 0) | (daily["ordered_sum"] != 0), "date"].max()
-    days = [x for x in sorted(daily["date"].unique()) if x <= last]
-    tot = d.groupby(["cabinet_id", "sku"])[["ads", "ordered_sum"]].sum()
+    tot = d.groupby(["cabinet_id", "sku"])[["ads", "ordered_sum", "views", "clicks"]].sum()
     top = tot.nlargest(HEAT_ROWS, "ads")
-    top = top[top["ads"] > 0]
-    n_high = int((top["ads"] > top["ordered_sum"] * limit / 100).sum())
-    bins = _drr_bins(limit)
-    nm = names.set_index(["cabinet_id", "sku"])
+    return top[top["ads"] > 0]
 
-    def color(a, o):
-        if a <= 0:
-            return "transparent"
-        if o <= 0:
-            return NO_ORDERS
-        v = a / o * 100
-        return next(c for hi, c, _ in bins if v <= hi)
 
+def _days(daily: pd.DataFrame) -> list:
+    # Ozon click statistics are loaded apart from the accruals and may reach further: they count too
+    seen = daily["views"] != 0 if "views" in daily else False
+    last = daily.loc[(daily["ads"] != 0) | (daily["ordered_sum"] != 0) | seen, "date"].max()
+    return [x for x in sorted(daily["date"].unique()) if x <= last]
+
+
+def _label(names: pd.DataFrame, cid, sku) -> tuple[str, str, str]:
+    nm = names[(names["cabinet_id"] == cid) & (names["sku"] == sku)]
+    if nm.empty:
+        return str(sku), str(sku), ""
+    r = nm.iloc[0]
+    return str(r["name"] or sku), str(r["article"] or sku), r.get("marketplace", "")
+
+
+def _heat_grid(title: str, sub: str, legend: list[tuple[str, str]], days: list, rows: list[dict]):
+    """A grid of cells as on the design: product × day, a total per row on the right.
+    rows: name, art, mp, cells [(colour, tooltip)], total, bad."""
     cols = f"minmax(160px, 260px) repeat({len(days)}, minmax(12px, 1fr)) 60px"
     head = "".join(
         f'<div class="h{" we" if x.weekday() >= 5 else ""}">{x.day if x.day == 1 or x.day % 5 == 0 else WEEKDAYS[x.weekday()]}</div>'
         for x in days)
-    rows = []
-    for (cid, sku), row in top.iterrows():
-        part = d[(d["cabinet_id"] == cid) & (d["sku"] == sku)].groupby("date")[["ads", "ordered_sum"]].sum() \
-            .reindex(days, fill_value=0.0)
-        roll = part.rolling(WINDOW, min_periods=1).sum()
-        cells = []
-        for day, (a, o) in zip(days, roll[["ads", "ordered_sum"]].itertuples(index=False)):
-            tip = (f"{day:%d.%m}: рекламы нет" if a <= 0 else
-                   f"{day:%d.%m}, за {WINDOW} дн.: реклама {rub(a)}, заказов нет" if o <= 0 else
-                   f"{day:%d.%m}, за {WINDOW} дн.: ДРР {_pct(a / o * 100)} % · реклама {rub(a)} · заказы {rub(o)}")
-            cells.append(f'<div class="c" style="background:{color(a, o)}" title="{_esc(tip)}"></div>')
-        info = nm.loc[(cid, sku)] if (cid, sku) in nm.index else None
-        name = str(info["name"]) if info is not None and info["name"] else str(sku)
-        art = str(info["article"]) if info is not None and info["article"] else str(sku)
-        mp = info["marketplace"] if info is not None and "marketplace" in nm else ""
-        drr = row["ads"] / row["ordered_sum"] * 100 if row["ordered_sum"] > 0 else None
-        total = f"{_pct(drr)} %" if drr is not None else "нет заказов"
-        rows.append(
-            f'<div class="r" style="grid-template-columns:{cols}">'
-            f'<div class="n" title="{_esc(name)} · {_esc(art)}"><span class="dot" style="background:{MP_COLORS.get(mp, ACCENT)}">'
-            f'</span><span class="t">{_esc(name)}</span></div>'
-            + "".join(cells) +
-            f'<div class="tot{" bad" if drr is None or drr > limit else ""}">{total}</div></div>')
-    legend = "".join(f'<span><i style="background:{c}"></i>{lab}</span>' for _, c, lab in bins) + \
-        f'<span><i style="background:{NO_ORDERS}"></i>расход без заказов</span>'
+    body = "".join(
+        f'<div class="r" style="grid-template-columns:{cols}">'
+        f'<div class="n" title="{_esc(r["name"])} · {_esc(r["art"])}"><span class="dot" '
+        f'style="background:{MP_COLORS.get(r["mp"], ACCENT)}"></span><span class="t">{_esc(r["name"])}</span></div>'
+        + "".join(f'<div class="c" style="background:{c}" title="{_esc(t)}"></div>' for c, t in r["cells"]) +
+        f'<div class="tot{" bad" if r["bad"] else ""}">{r["total"]}</div></div>' for r in rows)
+    lg = "".join(f'<span><i style="background:{c}"></i>{lab}</span>' for c, lab in legend)
     st.html(f"""
     <style>
       .fb-heat {{ font-family: inherit; color: inherit; }}
@@ -234,23 +247,136 @@ def drr_heatmap(daily: pd.DataFrame, names: pd.DataFrame, limit: float):
       .fb-heat .n {{ display:flex; align-items:center; gap:7px; min-width:0; font-size:12px; padding-right:6px; }}
       .fb-heat .dot {{ flex:none; width:8px; height:8px; border-radius:2px; }}
       .fb-heat .t {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }}
-      .fb-heat .a {{ flex:none; font-size:10px; opacity:.5; }}
       .fb-heat .tot {{ text-align:right; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }}
       .fb-heat .tot.bad {{ color:#EF4444; }}
       .fb-heat .hd {{ font-size:10px; opacity:.55; text-align:right; }}
     </style>
     <div class="fb-heat">
-      <div class="top">
-        <div><h4>Тепловая карта ДРР: {n_high} из {len(top)} самых рекламируемых товаров выше {_pct(limit, 0)} %</h4>
-        <div class="sub">Товар × день. Цвет — реклама к заказам за {WINDOW} дней по этот день: чем ярче, тем дороже.
-        Наведите на клетку — расход, заказы, ДРР. Пусто — рекламы не было.</div></div>
-        <div class="lg">{legend}</div>
-      </div>
+      <div class="top"><div><h4>{title}</h4><div class="sub">{sub}</div></div><div class="lg">{lg}</div></div>
       <div class="wrap"><div class="grid">
         <div class="r" style="grid-template-columns:{cols}"><div></div>{head}<div class="hd">за период</div></div>
-        {"".join(rows)}
+        {body}
       </div></div>
     </div>""")
+
+
+def drr_heatmap(daily: pd.DataFrame, names: pd.DataFrame, limit: float):
+    """Products with the most ad money × day; colour — ДРР к заказам over the last WINDOW days, in steps
+    around the limit."""
+    top = _top_skus(daily)
+    if top.empty:
+        return
+    days, bins = _days(daily), _drr_bins(limit)
+    d = daily[daily["sku"] != NO_SKU]
+
+    def color(a, o):
+        if a <= 0:
+            return "transparent"
+        if o <= 0:
+            return NO_ORDERS
+        return next(c for hi, c, _ in bins if a / o * 100 <= hi)
+
+    rows = []
+    for (cid, sku), row in top.iterrows():
+        part = d[(d["cabinet_id"] == cid) & (d["sku"] == sku)].groupby("date")[["ads", "ordered_sum"]].sum() \
+            .reindex(days, fill_value=0.0)
+        roll = part.rolling(WINDOW, min_periods=1).sum()
+        cells = []
+        for day, (a, o) in zip(days, roll[["ads", "ordered_sum"]].itertuples(index=False)):
+            cells.append((color(a, o),
+                          f"{day:%d.%m}: рекламы нет" if a <= 0 else
+                          f"{day:%d.%m}, за {WINDOW} дн.: реклама {rub(a)}, заказов нет" if o <= 0 else
+                          f"{day:%d.%m}, за {WINDOW} дн.: ДРР {_pct(a / o * 100)} % · реклама {rub(a)} · заказы {rub(o)}"))
+        name, art, mp = _label(names, cid, sku)
+        drr = row["ads"] / row["ordered_sum"] * 100 if row["ordered_sum"] > 0 else None
+        rows.append({"name": name, "art": art, "mp": mp, "cells": cells,
+                     "total": f"{_pct(drr)} %" if drr is not None else "нет заказов",
+                     "bad": drr is None or drr > limit})
+    n_high = sum(r["bad"] for r in rows)
+    _heat_grid(f"Тепловая карта ДРР: {n_high} из {len(rows)} самых рекламируемых товаров выше {_pct(limit, 0)} %",
+               f"Товар × день. Цвет — реклама к заказам за {WINDOW} дней по этот день: чем ярче, тем дороже. "
+               "Наведите на клетку — расход, заказы, ДРР. Пусто — рекламы не было.",
+               [(c, lab) for _, c, lab in bins] + [(NO_ORDERS, "расход без заказов")], days, rows)
+
+
+CTR_BINS = [(1, "#1C1838", "< 1 %"), (2, "#33276E", "1–2"), (3, "#5134B8", "2–3"), (4, "#7C55F0", "3–4"),
+            (float("inf"), "#B9A3FF", "> 4 %")]
+MIN_VIEWS = 50              # fewer impressions a day give a CTR that means nothing
+
+
+def ctr_heatmap(daily: pd.DataFrame, names: pd.DataFrame):
+    """The same products × day; colour — clicks / impressions of the day."""
+    top = _top_skus(daily)
+    top = top[top["views"] > 0]
+    if top.empty:
+        return
+    days = _days(daily)
+    d = daily[daily["sku"] != NO_SKU]
+    rows, we, wd = [], [0.0, 0.0], [0.0, 0.0]
+    for (cid, sku), row in top.iterrows():
+        part = d[(d["cabinet_id"] == cid) & (d["sku"] == sku)].groupby("date")[["views", "clicks"]].sum() \
+            .reindex(days, fill_value=0.0)
+        cells = []
+        for day, (v, c) in zip(days, part[["views", "clicks"]].itertuples(index=False)):
+            acc = we if day.weekday() >= 5 else wd
+            acc[0], acc[1] = acc[0] + v, acc[1] + c
+            if v < MIN_VIEWS:
+                cells.append(("transparent", f"{day:%d.%m}: показов {int(v)} — мало для CTR"))
+                continue
+            ctr = c / v * 100
+            cells.append((next(col for hi, col, _ in CTR_BINS if ctr <= hi),
+                          f"{day:%d.%m}: CTR {_pct(ctr)} % · показы {int(v):,} · клики {int(c):,}".replace(",", " ")))
+        name, art, mp = _label(names, cid, sku)
+        ctr = row["clicks"] / row["views"] * 100
+        rows.append({"name": name, "art": art, "mp": mp, "cells": cells, "total": f"{_pct(ctr)} %", "bad": ctr < 1})
+    head = "Тепловая карта CTR"
+    if we[0] > 0 and wd[0] > 0 and wd[1] > 0:
+        r = (we[1] / we[0]) / (wd[1] / wd[0])
+        if r >= 1.1:
+            head += f": в выходные кликают на {_pct((r - 1) * 100, 0)} % чаще"
+        elif r <= 0.9:
+            head += f": в выходные кликают на {_pct((1 - r) * 100, 0)} % реже"
+    low = sum(r["bad"] for r in rows)
+    if head == "Тепловая карта CTR" and low:
+        head += f": у {low} из {len(rows)} товаров CTR ниже 1 %"
+    _heat_grid(head, f"Клики / показы, товар × день. Ярче — лучше. Тусклые полосы — карточка не цепляет в выдаче. "
+               f"Пусто — меньше {MIN_VIEWS} показов за день.",
+               [(c, lab) for _, c, lab in CTR_BINS], days, rows)
+
+
+def ctr_vs_drr(daily: pd.DataFrame, names: pd.DataFrame, limit: float) -> bool:
+    """Products by CTR and ДРР к заказам for the period; False when there are no impressions to draw."""
+    d = daily[daily["sku"] != NO_SKU].groupby(["cabinet_id", "sku"])[["ads", "ordered_sum", "views", "clicks"]].sum()
+    d = d[(d["views"] >= MIN_VIEWS * 7) & (d["ads"] > 0)]
+    if len(d) < 3:
+        return False
+    d["ctr"] = d["clicks"] / d["views"] * 100
+    d["drr"] = np.where(d["ordered_sum"] > 0, d["ads"] / d["ordered_sum"] * 100, 60.0).clip(max=60)
+    avg = d["clicks"].sum() / d["views"].sum() * 100
+    bad = (d["ctr"] < avg) & (d["drr"] > limit)
+    n = int(bad.sum())
+    word = "товар" if n % 10 == 1 and n % 100 != 11 else \
+        "товара" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "товаров"
+    st.markdown(f"**CTR против ДРР: {n} {word} кликают хуже среднего и рекламируются дороже {_pct(limit, 0)} %**")
+    labels = [_label(names, c, s)[0][:60] for c, s in d.index]
+    size = np.sqrt(d["ads"]) / max(1, np.sqrt(d["ads"].max())) * 34 + 6
+    fig = go.Figure(go.Scatter(
+        x=d["ctr"], y=d["drr"], mode="markers",
+        marker=dict(size=size, color=np.where(bad, DANGER, ACCENT), opacity=0.7, line=dict(width=0)),
+        customdata=np.stack([labels, d["ads"], d["views"]], axis=-1),
+        hovertemplate="%{customdata[0]}<br>CTR %{x:.2f} % · ДРР %{y:.1f} %<br>реклама %{customdata[1]:,.0f} ₽"
+                      " · показы %{customdata[2]:,.0f}<extra></extra>"))
+    xmax = max(float(d["ctr"].max()) * 1.1, avg * 2)
+    fig.add_shape(type="rect", x0=0, x1=avg, y0=limit, y1=62, fillcolor=DANGER, opacity=0.06, line_width=0)
+    fig.add_vline(x=avg, line_color="rgba(148,163,184,0.6)", line_dash="dot", line_width=1)
+    fig.add_hline(y=limit, line_color=ADS_COLOR, line_dash="dash", line_width=1)
+    fig.update_layout(height=340, separators=SEP, margin=dict(t=10, l=10, r=10, b=10),
+                      xaxis=dict(title="CTR, %", range=[0, xmax], ticksuffix=" %"),
+                      yaxis=dict(title="ДРР к заказам, %", range=[0, 62], ticksuffix=" %"))
+    st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
+    st.caption(f"Размер точки — расход. Пунктир по CTR — средний {_pct(avg)} %. Левый верхний угол — "
+               "не кликают и дорого. ДРР обрезан на 60 % (там же товары без заказов).")
+    return True
 
 
 def ads_product_map(g: pd.DataFrame, limit: float):
@@ -304,16 +430,21 @@ def ads_donut(facts: pd.DataFrame, cabinets: pd.DataFrame):
            "%{label}: %{value:,.0f} ₽")
 
 
-def ads_overview(res, prev, label: str, daily: pd.DataFrame, g: pd.DataFrame, cabinets: pd.DataFrame,
-                 limit: float):
-    ads_kpis(res, prev, label, daily)
+def ads_overview(res, prev, label: str, daily: pd.DataFrame, prev_daily: pd.DataFrame, g: pd.DataFrame,
+                 cabinets: pd.DataFrame, limit: float):
+    ads_kpis(res, prev, label, daily, prev_daily)
     with st.container(border=True):
         ads_daily_chart(daily, cabinets, limit)
+    names = g[["cabinet_id", "sku", "name", "article", "marketplace"]]
     with st.container(border=True):
-        drr_heatmap(daily, g[["cabinet_id", "sku", "name", "article", "marketplace"]], limit)
+        drr_heatmap(daily, names, limit)
+    if daily["views"].sum() > 0:
+        with st.container(border=True):
+            ctr_heatmap(daily, names)
     a, b = st.columns([3, 2])
     with a.container(border=True):
-        ads_product_map(g, limit)
+        if not ctr_vs_drr(daily, names, limit):
+            ads_product_map(g, limit)
     with b.container(border=True):
         ads_donut(res.facts, cabinets)
 

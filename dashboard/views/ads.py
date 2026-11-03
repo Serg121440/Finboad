@@ -36,9 +36,11 @@ def render():
     facts = res.facts
     p0, p1, label = previous_period(f.date_from, f.date_to)
     prev = result_for(Filters(p0, p1, f.cabinet_ids, f.cabinets))
-    daily = ads_daily_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
+    ids = tuple(sorted(f.cabinet_ids))
+    daily = ads_daily_for(f.date_from, f.date_to, ids, data_version())
+    prev_daily = ads_daily_for(p0, p1, ids, data_version())
     named = with_names(summarize(facts, ["cabinet_id", "sku"]), f.cabinets, res.products)
-    ads_overview(res, prev, label, daily, named, f.cabinets, drr_limit())
+    ads_overview(res, prev, label, daily, prev_daily, named, f.cabinets, drr_limit())
     st.subheader("По кабинетам")
     by_cab = summarize(facts, ["cabinet_id"])
     common = facts[facts["sku"] == NO_SKU].groupby("cabinet_id")["ads"].sum()

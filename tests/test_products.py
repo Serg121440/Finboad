@@ -256,3 +256,66 @@ def test_week_comparison_skips_cut_weeks():
     assert list(w["days"]) == [4, 7, 7, 7, 3]
     assert w["label"].iloc[0] == "28.09 (4 дн.)"
     assert list(_comparable(w)["days"]) == [7, 7, 7]
+
+
+def test_ozon_report_columns_by_start():
+    from sources.ozon_api import _col
+    row = {"Показы": "1 200", "Клики": "30", "CTR (%)": "2,5", "Ср. цена клика, ₽": "17"}
+    assert _col(row, "Показы") == "1 200" and _col(row, "Клики") == "30" and _col(row, "Заказы") is None
+
+
+def test_click_kpis_from_daily():
+    from dashboard.views.report_charts import _clicks
+    d = pd.DataFrame({"views": [1000.0, 0.0], "clicks": [25.0, 0.0], "click_money": [500.0, 0.0]})
+    ctr, cpc = _clicks(d)
+    assert ctr == pytest.approx(0.025) and cpc == pytest.approx(20)
+    assert pd.isna(_clicks(d.iloc[1:])[0])
+
+
+def test_cost_per_click_ignores_rows_without_statistics():
+    from datetime import date as _d
+    from pnl.engine import Data, ads_daily
+    empty = lambda cols: pd.DataFrame(columns=cols)
+    ads = pd.DataFrame([
+        dict(cabinet_id=1, date=_d(2026, 10, 1), sku="1", amount=500.0, kind="spend", campaign_id="7",
+             views=None, clicks=None),
+        dict(cabinet_id=1, date=_d(2026, 10, 2), sku="1", amount=500.0, kind="spend", campaign_id="7",
+             views=1000, clicks=25)])
+    d = Data(cabinets=pd.DataFrame({"id": [1], "marketplace": ["wb"], "name": ["x"], "entity_id": [None]}),
+             entities=empty(["id"]), tax_settings=empty(["entity_id"]),
+             ledger=empty(["cabinet_id", "date", "sku", "category", "amount", "qty", "posting", "raw_type"]),
+             ads=ads, campaigns=empty(["cabinet_id", "campaign_id", "type"]),
+             orders=empty(["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"]),
+             products=empty(["cabinet_id", "sku", "article", "name"]), cogs=empty(["article"]),
+             fixed=empty(["entity_id"]), date_from=_d(2026, 10, 1), date_to=_d(2026, 10, 31))
+    a = ads_daily(d)
+    assert a["ads"].sum() == 1000
+    assert a["click_money"].sum() / a["clicks"].sum() == 20
+
+
+def test_heatmap_days_reach_the_last_impressions():
+    from datetime import date as _d
+    from dashboard.views.report_charts import _days
+    daily = pd.DataFrame({"date": [_d(2026, 10, 1), _d(2026, 10, 2), _d(2026, 10, 3)],
+                          "ads": [10.0, 0.0, 0.0], "ordered_sum": [0.0, 0.0, 0.0], "views": [100.0, 80.0, 0.0]})
+    assert _days(daily) == [_d(2026, 10, 1), _d(2026, 10, 2)]
+
+
+def test_zero_spend_statistics_do_not_split_ad_money():
+    from datetime import date as _d
+    from pnl.engine import Data, ads_daily
+    empty = lambda cols: pd.DataFrame(columns=cols)
+    day = _d(2026, 10, 5)
+    ledger = pd.DataFrame([dict(cabinet_id=1, date=day, sku=None, category="ads_mp", amount=-500.0, qty=0,
+                                posting="", raw_type="Оплата за клик")])
+    ads = pd.DataFrame([dict(cabinet_id=1, date=day, sku=s, amount=0.0, kind="alloc_cpc", campaign_id="7",
+                             views=100, clicks=2) for s in ("1", "2")])
+    d = Data(cabinets=pd.DataFrame({"id": [1], "marketplace": ["ozon"], "name": ["x"], "entity_id": [None]}),
+             entities=empty(["id"]), tax_settings=empty(["entity_id"]), ledger=ledger, ads=ads,
+             campaigns=empty(["cabinet_id", "campaign_id", "type"]),
+             orders=empty(["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"]),
+             products=empty(["cabinet_id", "sku", "article", "name"]), cogs=empty(["article"]),
+             fixed=empty(["entity_id"]), date_from=_d(2026, 10, 1), date_to=_d(2026, 10, 31))
+    a = ads_daily(d)
+    assert a["ads"].sum() == 500
+    assert a["views"].sum() == 200

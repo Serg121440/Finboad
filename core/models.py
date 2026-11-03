@@ -143,6 +143,8 @@ class AdSpend(Base):
     # alloc_cpc / alloc_cpo: Ozon ad statistics used only as weights to split the
     # ad money from the accrual report between SKUs.
     kind = Column(String(20), default="spend")
+    views = Column(Integer, default=0)             # показы (Ozon CPC-статистика, WB fullstats)
+    clicks = Column(Integer, default=0)
     source_key = Column(String(160), nullable=False)
 
     __table_args__ = (
