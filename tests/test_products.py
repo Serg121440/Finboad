@@ -299,3 +299,23 @@ def test_heatmap_days_reach_the_last_impressions():
     daily = pd.DataFrame({"date": [_d(2026, 10, 1), _d(2026, 10, 2), _d(2026, 10, 3)],
                           "ads": [10.0, 0.0, 0.0], "ordered_sum": [0.0, 0.0, 0.0], "views": [100.0, 80.0, 0.0]})
     assert _days(daily) == [_d(2026, 10, 1), _d(2026, 10, 2)]
+
+
+def test_zero_spend_statistics_do_not_split_ad_money():
+    from datetime import date as _d
+    from pnl.engine import Data, ads_daily
+    empty = lambda cols: pd.DataFrame(columns=cols)
+    day = _d(2026, 10, 5)
+    ledger = pd.DataFrame([dict(cabinet_id=1, date=day, sku=None, category="ads_mp", amount=-500.0, qty=0,
+                                posting="", raw_type="Оплата за клик")])
+    ads = pd.DataFrame([dict(cabinet_id=1, date=day, sku=s, amount=0.0, kind="alloc_cpc", campaign_id="7",
+                             views=100, clicks=2) for s in ("1", "2")])
+    d = Data(cabinets=pd.DataFrame({"id": [1], "marketplace": ["ozon"], "name": ["x"], "entity_id": [None]}),
+             entities=empty(["id"]), tax_settings=empty(["entity_id"]), ledger=ledger, ads=ads,
+             campaigns=empty(["cabinet_id", "campaign_id", "type"]),
+             orders=empty(["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"]),
+             products=empty(["cabinet_id", "sku", "article", "name"]), cogs=empty(["article"]),
+             fixed=empty(["entity_id"]), date_from=_d(2026, 10, 1), date_to=_d(2026, 10, 31))
+    a = ads_daily(d)
+    assert a["ads"].sum() == 500
+    assert a["views"].sum() == 200

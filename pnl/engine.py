@@ -114,7 +114,8 @@ def ads_by_sku(d: Data, bucket=_month) -> pd.DataFrame:
             return "common"
 
         led["pool"] = [pool(r) for r in led.itertuples()]
-        alloc = d.ads[d.ads["kind"].isin(["alloc_cpc", "alloc_cpo"])].copy()
+        # rows with impressions but no money are kept for CTR; as weights they would make a zero pool
+        alloc = d.ads[d.ads["kind"].isin(["alloc_cpc", "alloc_cpo"]) & (d.ads["amount"] > 0)].copy()
         if not alloc.empty:
             alloc["period"] = _month(alloc["date"])
             alloc["pool"] = alloc["kind"].str.replace("alloc_", "", regex=False)
@@ -134,7 +135,8 @@ def ads_by_sku(d: Data, bucket=_month) -> pd.DataFrame:
             split = m.merge(w[w["pool"] == p][["cabinet_id", "period", "sku", "share"]],
                             on=["cabinet_id", "period"], how="left")
             has = split["share"].notna()
-            split.loc[has, "amount"] = split.loc[has, "amount"] * split.loc[has, "share"]
+            if has.any():
+                split.loc[has, "amount"] = split.loc[has, "amount"] * split.loc[has, "share"].astype(float)
             split.loc[~has, "sku"] = NO_SKU
             out.append(split[["cabinet_id", "month", "sku", "amount"]])
         common = money[money["pool"] == "common"].groupby(["cabinet_id", "month"], as_index=False)["amount"].sum()
