@@ -198,6 +198,12 @@ def short_name(name: str) -> str:
     return name if len(name) <= NAME_LEN else name[:NAME_LEN - 1].rstrip() + "…"
 
 
+def unit_columns(per: str, to: str) -> list[str]:
+    """Columns that depend on the unit base."""
+    return [f"Прибыль {per}, ₽", f"Маржа {to}, %", f"ДРР {to}, %",
+            *[f"{t} {per}, ₽" for k, t in UNIT_LINES.items() if k != "profit"]]
+
+
 def views(per: str, to: str) -> dict[str, list[str] | None]:
     """Column sets of the table (Артикул, Товар are always first and pinned)."""
     return {
@@ -221,10 +227,12 @@ def render():
     if f is None:
         st.info("Кабинетов пока нет.")
         return
-    base = st.radio("Показатели «на единицу» считать на", list(BASES), horizontal=True,
-                    format_func=lambda b: BASES[b][0])
+    # the unit base is chosen above the table; the card and the cached table key need it before that
+    st.session_state.setdefault("prod_base", "Выкупы")
+    if st.session_state["prod_base"] not in BASES:
+        st.session_state["prod_base"] = "Выкупы"
+    base = st.session_state["prod_base"]
     _, per, to, note = BASES[base]
-    st.caption(f"Суммы в ₽ — факт по начислениям за период, от выбора не зависят. {note}")
     days = (f.date_to - f.date_from).days + 1
     if days < SHORT_PERIOD_DAYS:
         st.caption(f":material/info: Период {days} дн.: выкупают в основном заказы прошлых недель, а заказы "
@@ -266,9 +274,19 @@ def render():
     q2.number_input("Высокий ДРР — больше, % выручки", min_value=1.0, max_value=100.0, step=1.0,
                     key="prod_drr_limit", disabled=quick != "Высокий ДРР")
     vnames = views(per, to)
-    w1, w2 = st.columns([4, 1])
+    w1, w3, w2 = st.columns([3, 2, 1])
     view_name = w1.segmented_control("Представление", list(vnames), key="prod_view") or "Прибыль"
+    unit_cols = [c for c in (vnames[view_name] or unit_columns(per, to)) if c in unit_columns(per, to)]
+    w3.segmented_control("Показатели «на единицу»", list(BASES), key="prod_base",
+                         format_func=lambda b: "на " + BASES[b][0], disabled=not unit_cols,
+                         help="Меняет только столбцы «на 1 …», маржу и ДРР. Суммы в ₽ — факт по начислениям "
+                              "за период, от выбора не зависят.")
     sort = w2.selectbox("Сортировка", ["Прибыль ↑", "Прибыль ↓", "Выручка ↓", "ДРР ↓"])
+    if unit_cols:
+        st.caption(f"База «{BASES[base][0]}» меняет столбцы: " + ", ".join(f"«{c}»" for c in unit_cols)
+                   + f". {note}")
+    else:
+        st.caption("В этом представлении нет показателей «на единицу» — база на него не влияет.")
 
     v = g.assign(**{f"u_{k}": u[k] for k in u.columns})
     if query:
