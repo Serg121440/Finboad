@@ -18,6 +18,7 @@ from dashboard.common import (
 )
 from dashboard.quality import attention_issues, quality_block, status_line
 from dashboard.views.products_overview import NO_SALES, overview, previous_period
+from dashboard.xlsx import MIME, to_xlsx
 from pnl.engine import LINE_TITLES, NO_SKU, ORDER_COLS
 
 BASES = {
@@ -362,6 +363,15 @@ def render():
                              **{c: st.column_config.TextColumn(alignment="right") for c in blank},
                          })
     st.caption(f"Товаров: {len(out)}. Нажмите на строку — ниже откроется карточка товара.")
+    name = f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}"
+    header = [f"Товары {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, показатели «на единицу» — "
+              f"{BASES[base][1]}", status_line(issues)]
+    d1, d2, _ = st.columns([1, 1, 3])
+    d1.download_button("Скачать Excel", to_xlsx([("Товары", out)], header), file_name=f"{name}.xlsx",
+                       mime=MIME, width="stretch", help="Все показатели по товарам в таблице выше: "
+                       "с текущими выборкой, поиском и площадкой")
+    d2.download_button("Скачать CSV", csv.encode("utf-8-sig"), file_name=f"{name}.csv", mime="text/csv",
+                       width="stretch")
     with st.expander("Как читать таблицу"):
         st.caption(
             f"«—» — показатель не "
@@ -378,9 +388,6 @@ def render():
         product_card(v.iloc[rows[0]], f, base)
 
     _reconciliation(before, g)
-    st.download_button("Скачать CSV (все показатели)", csv.encode("utf-8-sig"),
-                       file_name=f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.csv",
-                       mime="text/csv")
 
 
 # ── product card ─────────────────────────────────────────────────────────────
