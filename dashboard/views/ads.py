@@ -7,10 +7,11 @@ import streamlit as st
 from dashboard.common import (
     MP_NAMES, Filters, ads_daily_for, data_version, pct, result_for, rub, period_filters, summarize, with_names,
 )
-from dashboard.quality import quality_block
+from dashboard.quality import quality_block, status_line
 from dashboard.views.products import drr_limit
 from dashboard.views.products_overview import previous_period
 from dashboard.views.report_charts import ads_overview
+from dashboard.xlsx import MIME, to_xlsx
 from pnl.engine import NO_SKU
 
 
@@ -32,7 +33,7 @@ def render():
     if res.facts.empty:
         st.warning("За период нет данных.")
         return
-    quality_block(f, res, compact=True)
+    issues = quality_block(f, res, compact=True)
     facts = res.facts
     p0, p1, label = previous_period(f.date_from, f.date_to)
     prev = result_for(Filters(p0, p1, f.cabinet_ids, f.cabinets))
@@ -44,7 +45,7 @@ def render():
     st.subheader("По кабинетам")
     by_cab = summarize(facts, ["cabinet_id"])
     common = facts[facts["sku"] == NO_SKU].groupby("cabinet_id")["ads"].sum()
-    rows = []
+    rows, cab_x = [], []
     for _, r in by_cab.iterrows():
         c = f.cabinets[f.cabinets["id"] == r["cabinet_id"]].iloc[0]
         ads = -r["ads"]
@@ -52,6 +53,9 @@ def render():
         rows.append({"Кабинет": f"{MP_NAMES[c['marketplace']]} · {c['name']}", "Реклама": rub(ads),
                      "по товарам": rub(ads - com), "общая (не делится по товарам)": rub(com),
                      "ДРР к выручке": pct(r["drr"])})
+        cab_x.append({"Кабинет": rows[-1]["Кабинет"], "Реклама, ₽": ads, "по товарам, ₽": ads - com,
+                      "общая (не делится по товарам), ₽": com, "Выручка, ₽": r["revenue"],
+                      "ДРР к выручке, %": r["drr"] * 100})
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     st.caption("Ozon: сумма — из отчёта по начислениям. Клики раскладываются по товарам по статистике кампаний, "
                "«оплата за заказ: выбранные товары» — по отчёту о заказах. «Оплата за заказ — все товары» по "
@@ -70,3 +74,7 @@ def render():
     st.dataframe(out, use_container_width=True, hide_index=True, height=500, column_config={
         c: st.column_config.NumberColumn(format="%.0f" if "₽" in c else "%.1f") for c in out.columns
         if "₽" in c or "%" in c})
+    header = [f"Реклама {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}", status_line(issues)]
+    st.download_button("Скачать Excel", to_xlsx([("По кабинетам", pd.DataFrame(cab_x)), ("По товарам", out)],
+                                                header),
+                       mime=MIME, file_name=f"реклама_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.xlsx")

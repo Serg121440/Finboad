@@ -7,7 +7,8 @@ from dashboard.common import (
     MP_NAMES, daily_results_for, data_version, hide_cogs_columns, pct, result_for, rub, period_filters, summarize,
 )
 from dashboard.views.report_charts import opiu_overview
-from dashboard.quality import month_label, quality_block
+from dashboard.quality import month_label, quality_block, status_line
+from dashboard.xlsx import MIME, PCT, RUB, to_xlsx
 from pnl.engine import LINE_TITLES
 
 LINES = ["revenue", "commission", "logistics", "storage", "penalties", "services", "other", "ads",
@@ -32,7 +33,7 @@ def render():
         st.warning("За период нет данных.")
         return
 
-    quality_block(f, res, compact=True)
+    issues = quality_block(f, res, compact=True)
     g = summarize(facts, ["month"]).sort_values("month")
     fx = res.fixed
     if not fx.empty:
@@ -50,12 +51,15 @@ def render():
     order = LINES + ["fixed", "net", "margin", "drr"]
     months = [month_label(pd.Timestamp(m).date(), f.date_from, f.date_to) for m in g["month"]]
     table = pd.DataFrame(index=[titles[k] for k in order])
+    values = pd.DataFrame(index=table.index)
     for m, (_, row) in zip(months, g.iterrows()):
         table[m] = [pct(row[k]) if k in ("margin", "drr") else rub(row[k]) for k in order]
+        values[m] = [row[k] for k in order]
     if len(months) > 1:
         tot = summarize(facts.assign(_k=1), ["_k"]).iloc[0]
         tot["fixed"], tot["net"] = g["fixed"].sum(), g["profit"].sum() + g["fixed"].sum()
         table["Итого"] = [pct(tot[k]) if k in ("margin", "drr") else rub(tot[k]) for k in order]
+        values["Итого"] = [tot[k] for k in order]
     daily = daily_results_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
     if mp != "Все" and not daily.empty:
         daily = daily[daily["cabinet_id"].map(cab_mp) == code]
@@ -64,6 +68,12 @@ def render():
     t = hide_cogs_columns(table.T).T.reset_index().rename(columns={"index": "Статья"})
     st.dataframe(t, use_container_width=True, hide_index=True, height=35 * (len(t) + 1) + 3,
                  column_config={"Статья": st.column_config.TextColumn(width="large")})
+    xv = values.loc[t["Статья"]].reset_index().rename(columns={"index": "Статья"})
+    fmts = [PCT if s in (titles["margin"], titles["drr"]) else RUB for s in xv["Статья"]]
+    header = [f"ОПиУ по месяцам {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, маркетплейс: {mp}",
+              status_line(issues)]
+    st.download_button("Скачать Excel", to_xlsx([("ОПиУ", xv, fmts)], header), mime=MIME,
+                       file_name=f"опиу_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.xlsx")
     if any("неполный" in m for m in months) and len(months) > 1:
         st.warning("В таблице месяцы разной длины: неполный месяц сравнивайте с другими по средним за день, "
                    "а не по сумме.")
