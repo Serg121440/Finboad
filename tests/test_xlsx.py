@@ -42,3 +42,11 @@ def test_several_sheets():
     a, b = pd.DataFrame({"Кабинет": ["X"], "Реклама, ₽": [5.0]}), pd.DataFrame({"Товар": ["Y"]})
     wb = load_workbook(BytesIO(to_xlsx([("По кабинетам", a), ("По товарам", b)])))
     assert wb.sheetnames == ["По кабинетам", "По товарам"]
+
+
+def test_marked_cells_are_filled():
+    df = pd.DataFrame({"Товар": ["A", "B"], "Маржа, %": [40.0, -30.0]})
+    marks = pd.DataFrame({"Товар": ["", ""], "Маржа, %": ["good", "bad"]})
+    ws = _sheet(to_xlsx([("Т", df, None, marks)]), "Т")
+    assert ws["B2"].fill.fgColor.rgb.endswith("C6EFCE") and ws["B3"].fill.fgColor.rgb.endswith("FFC7CE")
+    assert ws["A2"].fill.fill_type is None

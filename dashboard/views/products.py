@@ -205,11 +205,37 @@ def unit_columns(per: str, to: str) -> list[str]:
             *[f"{t} {per}, ₽" for k, t in UNIT_LINES.items() if k != "profit"]]
 
 
+# compact table headers; the full name is in the header tooltip and in the files
+SHORT = {"Комиссия с эквайрингом, % выручки": "Комиссия, % выр.", "Логистика, % выручки": "Логистика, % выр.",
+         "Хранение и прочее, % выручки": "Хранение, % выр.", "% выкупа заказов": "Выкуп, %",
+         "Заказано, шт": "Заказ, шт", "Доставлено, шт": "Дост., шт", "Отменено, шт": "Отмен., шт",
+         "Продано, шт": "Прод., шт", "Возвраты, шт": "Возвр., шт", "Выкуп нетто, шт": "Нетто, шт",
+         "Заказано, ₽": "Заказы, ₽", "Эквайринг, ₽": "Эквайр., ₽", "Хранение и прочее, ₽": "Хранение, ₽",
+         "Реклама по товару, ₽": "Рекл. товар, ₽", "Реклама «все товары», ₽": "Рекл. общая, ₽",
+         "Общие расходы МП, ₽": "Общие МП, ₽", "Себестоимость, ₽": "Себест., ₽"}
+UNIT_SHORT = {"Цена": "Цена", "Комиссия": "Комис.", "Эквайринг": "Эквайр.", "Логистика": "Логист.",
+              "Реклама": "Рекл.", "Себестоимость": "Себест.", "Прибыль": "Прибыль"}
+
+
+def short_label(col: str, per: str) -> str:
+    """«Прибыль на 1 выкуп, ₽» → «Прибыль/выкуп, ₽», «Маржа к выручке, %» → «Маржа, %», and SHORT."""
+    if col in SHORT:
+        return SHORT[col]
+    unit = per.replace("на 1 ", "/")
+    for t, short in UNIT_SHORT.items():
+        if col == f"{t} {per}, ₽":
+            return f"{short}{unit}, ₽"
+    for t in ("Маржа", "ДРР"):
+        if col.startswith(t + " ") and col.endswith(", %"):
+            return f"{t}, %"
+    return col
+
+
 def views(per: str, to: str) -> dict[str, list[str] | None]:
     """Column sets of the table (Артикул, Товар are always first and pinned)."""
     return {
         "Прибыль": ["Статус", "Выручка, ₽", "Прибыль, ₽", f"Прибыль {per}, ₽", f"Маржа {to}, %", "Выкуп нетто, шт",
-                    "Себестоимость, ₽", "Налоги, ₽", f"ДРР {to}, %"],
+                    "% выкупа заказов", "Себестоимость, ₽", "Налоги, ₽", f"ДРР {to}, %"],
         "Реклама": ["Статус", "Заказано, ₽", "Выручка, ₽", "Реклама по товару, ₽", "Реклама «все товары», ₽",
                     f"ДРР {to}, %", f"Реклама {per}, ₽", "Прибыль, ₽", f"Прибыль {per}, ₽"],
         "Расходы": ["Выручка, ₽", "Комиссия, ₽", "Эквайринг, ₽", "Логистика, ₽", "Хранение и прочее, ₽",
@@ -221,6 +247,68 @@ def views(per: str, to: str) -> dict[str, list[str] | None]:
         "Все показатели": None,
     }
 
+
+
+def product_rows(v: pd.DataFrame, per: str, to: str) -> pd.DataFrame:
+    """The table of products with every column (the views pick from it)."""
+    return pd.DataFrame({
+        "Артикул": v["article"], "Товар": v["name"], "Статус": v["status"],
+        "Прибыль, ₽": v["profit"], f"Прибыль {per}, ₽": v["u_profit"], f"Маржа {to}, %": v["u_margin"] * 100,
+        # costs as a share of the period's revenue (выкупы), whatever the base above
+        **{f"{t}, % выручки": revenue_share(v, cols) for t, cols in SHARE_COLS.items()},
+        # orders of the period and what became of them
+        "Заказано, шт": v["ordered_qty"], "Доставлено, шт": v["delivered_qty"], "Отменено, шт": v["cancelled_qty"],
+        "В пути, шт": v["transit_qty"], "% выкупа заказов": v["buyout_pct"],
+        # sales of the period
+        "Продано, шт": v["sold"], "Возвраты, шт": v["returned"], "Выкуп нетто, шт": v["net_qty"],
+        "Сделки, шт": v["sold"] + v["cancelled_qty"],
+        "Заказано, ₽": v["ordered_sum"], "Выручка, ₽": v["revenue"],
+        "Комиссия, ₽": v["commission"] - v["acquiring"], "Эквайринг, ₽": v["acquiring"],
+        "Логистика, ₽": v["logistics"],
+        "Хранение и прочее, ₽": v["storage"] + v["penalties"] + v["services"] + v["other"],
+        "Реклама по товару, ₽": v["ads"] - v["ads_common"], "Реклама «все товары», ₽": v["ads_common"],
+        "Общие расходы МП, ₽": v["other_common"], f"ДРР {to}, %": v["u_drr"] * 100,
+        "Себестоимость, ₽": v["cogs"], "Налоги, ₽": v["vat"] + v["tax"],
+        **{f"{t} {per}, ₽": v[f"u_{k}"] for k, t in UNIT_LINES.items() if k != "profit"},
+        "SKU": v["sku"], "Кабинет": v["cabinet"], "МП": v["marketplace"].map(MP_NAMES),
+    })
+
+
+# columns compared with the other products: +1 — the higher the better, −1 — the lower the better
+ANOMALY_COLS = {"Маржа": 1, "% выкупа заказов": 1, "Комиссия с эквайрингом, % выручки": -1,
+                "Логистика, % выручки": -1, "Хранение и прочее, % выручки": -1}
+ANOMALY_MIN = 8          # fewer products with sales — no «usual range» to compare with
+ANOMALY_GAP = 2.0        # p.p. from the median at least: a hair outside a narrow range is not an anomaly
+FILL = {"good": "background-color: rgba(34, 197, 94, 0.22)", "bad": "background-color: rgba(239, 68, 68, 0.22)"}
+
+
+def anomalies(table: pd.DataFrame, ref: pd.DataFrame, drr_col: str | None = None,
+              drr_high: pd.Series | None = None) -> pd.DataFrame:
+    """«good» / «bad» / "" per cell of table. A value is an anomaly when it is outside
+    Q1 − 1.5·IQR … Q3 + 1.5·IQR of the same column among ref (products with sales) and at least
+    ANOMALY_GAP from the median; its side and the
+    column's direction say whether it is good or bad. ДРР — by the fixed limit only: drr_high marks the
+    rows above it (bad)."""
+    marks = pd.DataFrame("", index=table.index, columns=table.columns)
+    live = ~table["Статус"].isin(list(NO_SALES) + ["только возвраты", "общие расходы"]) \
+        if "Статус" in table else pd.Series(True, index=table.index)
+    for col in table.columns:
+        sign = next((d for k, d in ANOMALY_COLS.items() if str(col).startswith(k)), None)
+        if sign is None or col not in ref:
+            continue
+        r = pd.to_numeric(ref[col], errors="coerce").dropna()
+        if len(r) < ANOMALY_MIN:
+            continue
+        q1, q3, med = r.quantile(0.25), r.quantile(0.75), r.median()
+        lo = min(q1 - 1.5 * (q3 - q1), med - ANOMALY_GAP)
+        hi = max(q3 + 1.5 * (q3 - q1), med + ANOMALY_GAP)
+        x = pd.to_numeric(table[col], errors="coerce")
+        high, low = live & (x > hi), live & (x < lo)
+        marks.loc[high, col] = "good" if sign > 0 else "bad"
+        marks.loc[low, col] = "bad" if sign > 0 else "good"
+    if drr_col in table and drr_high is not None:
+        marks.loc[live & drr_high.reindex(table.index, fill_value=False), drr_col] = "bad"
+    return marks
 
 def render():
     st.title("Товары")
@@ -283,13 +371,22 @@ def render():
                          help="Меняет только столбцы «на 1 …», маржу и ДРР. Суммы в ₽ — факт по начислениям "
                               "за период, от выбора не зависят.")
     sort = w2.selectbox("Сортировка", ["Прибыль ↑", "Прибыль ↓", "Выручка ↓", "ДРР ↓"])
+    highlight = st.toggle("Подсветить аномалии", value=True, key="prod_anomalies",
+                          help="Зелёным — заметно лучше, красным — заметно хуже, чем у остальных товаров с продажами "
+                               "(вне обычного разброса Q1 − 1,5·IQR … Q3 + 1,5·IQR и дальше 2 п.п. от "
+                               "медианы): маржа, % выкупа, доли "
+                               "комиссии, логистики и хранения в выручке. ДРР — по порогу «Высокий ДРР»: "
+                               "выше него — красным.")
     if unit_cols:
-        st.caption(f"База «{BASES[base][0]}» меняет столбцы: " + ", ".join(f"«{c}»" for c in unit_cols)
-                   + f". {note}")
+        st.caption(f"База «{BASES[base][0]}» меняет столбцы: " + ", ".join(f"«{short_label(c, per)}»"
+                                                                          for c in unit_cols) + f". {note}")
     else:
         st.caption("В этом представлении нет показателей «на единицу» — база на него не влияет.")
 
     v = g.assign(**{f"u_{k}": u[k] for k in u.columns})
+    # the usual range of each column: products with sales of the selected cabinets and marketplace
+    ref = v[(v["sku"] != NO_SKU) & ~v["status"].isin(NO_SALES) & (v["revenue"] > 0)]
+    ref = product_rows(ref if mp == "Все" else ref[ref["marketplace"] == mp], per, to)
     if query:
         ql = query.lower()
         v = v[v["article"].str.lower().str.contains(ql, regex=False) |
@@ -307,28 +404,10 @@ def render():
     v = v.assign(_idle=v["status"].isin(NO_SALES)).sort_values(["_idle", by], ascending=[True, asc]) \
         .drop(columns="_idle").reset_index(drop=True)
 
-    out = pd.DataFrame({
-        "Артикул": v["article"], "Товар": v["name"], "Статус": v["status"],
-        "Прибыль, ₽": v["profit"], f"Прибыль {per}, ₽": v["u_profit"], f"Маржа {to}, %": v["u_margin"] * 100,
-        # costs as a share of the period's revenue (выкупы), whatever the base above
-        **{f"{t}, % выручки": revenue_share(v, cols) for t, cols in SHARE_COLS.items()},
-        # orders of the period and what became of them
-        "Заказано, шт": v["ordered_qty"], "Доставлено, шт": v["delivered_qty"], "Отменено, шт": v["cancelled_qty"],
-        "В пути, шт": v["transit_qty"], "% выкупа заказов": v["buyout_pct"],
-        # sales of the period
-        "Продано, шт": v["sold"], "Возвраты, шт": v["returned"], "Выкуп нетто, шт": v["net_qty"],
-        "Сделки, шт": v["sold"] + v["cancelled_qty"],
-        "Заказано, ₽": v["ordered_sum"], "Выручка, ₽": v["revenue"],
-        "Комиссия, ₽": v["commission"] - v["acquiring"], "Эквайринг, ₽": v["acquiring"],
-        "Логистика, ₽": v["logistics"],
-        "Хранение и прочее, ₽": v["storage"] + v["penalties"] + v["services"] + v["other"],
-        "Реклама по товару, ₽": v["ads"] - v["ads_common"], "Реклама «все товары», ₽": v["ads_common"],
-        "Общие расходы МП, ₽": v["other_common"], f"ДРР {to}, %": v["u_drr"] * 100,
-        "Себестоимость, ₽": v["cogs"], "Налоги, ₽": v["vat"] + v["tax"],
-        **{f"{t} {per}, ₽": v[f"u_{k}"] for k, t in UNIT_LINES.items() if k != "profit"},
-        "SKU": v["sku"], "Кабинет": v["cabinet"], "МП": v["marketplace"].map(MP_NAMES),
-    })
+    out = product_rows(v, per, to)
+    marks = anomalies(out, ref, f"ДРР {to}, %", v["drr_rev"] > limit)
     out = hide_cogs_columns(out)
+    marks = marks[out.columns]
     csv = status_line(issues) + "\n\n" + out.to_csv(index=False, sep=";")
 
     cols = vnames[view_name]
@@ -351,23 +430,28 @@ def render():
                    subset=[c for c in ("Прибыль, ₽", f"Прибыль {per}, ₽") if c in money])
               .map(lambda x: {"убыток": "color: #EF4444", "нет себестоимости": "color: #F59E0B"}.get(x, ""),
                    subset=["Статус"] if "Статус" in shown.columns else []))
+    if highlight:
+        styled = styled.apply(lambda d: marks.loc[d.index, d.columns].map(lambda m: FILL.get(m, "")), axis=None)
     # the selection is a row position: a new filter, sort or view must not open another product's card
     sel_key = "prod_table_" + str(abs(hash((query, quick, limit, mp, sort, view_name, base, f.date_from, f.date_to,
                                              tuple(f.cabinet_ids)))))
     event = st.dataframe(styled, use_container_width=True, hide_index=True, key=sel_key,
                          height=min(560, 35 * (len(shown) + 1) + 3),
                          on_select="rerun", selection_mode="single-row", column_config={
+                             **{c: (st.column_config.TextColumn(short_label(c, per), help=c, alignment="right")
+                                    if c in blank else st.column_config.Column(short_label(c, per), help=c))
+                                for c in shown.columns[2:]},
                              "Артикул": st.column_config.TextColumn(pinned=True),
                              "Товар": st.column_config.TextColumn(pinned=True, width="medium",
                                                                   help="Полное название — в карточке товара"),
-                             **{c: st.column_config.TextColumn(alignment="right") for c in blank},
                          })
     st.caption(f"Товаров: {len(out)}. Нажмите на строку — ниже откроется карточка товара.")
     name = f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}"
     header = [f"Товары {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, показатели «на единицу» — "
               f"{BASES[base][1]}", status_line(issues)]
     d1, d2, _ = st.columns([1, 1, 3])
-    d1.download_button("Скачать Excel", to_xlsx([("Товары", out)], header), file_name=f"{name}.xlsx",
+    d1.download_button("Скачать Excel", to_xlsx([("Товары", out, None, marks if highlight else None)], header),
+                       file_name=f"{name}.xlsx",
                        mime=MIME, width="stretch", help="Все показатели по товарам в таблице выше: "
                        "с текущими выборкой, поиском и площадкой")
     d2.download_button("Скачать CSV", csv.encode("utf-8-sig"), file_name=f"{name}.csv", mime="text/csv",

@@ -7,6 +7,7 @@ import pandas as pd
 
 MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 RUB, PCT, QTY = "#,##0 ₽;-#,##0 ₽", "0.0%", "#,##0"
+FILLS = {"good": "C6EFCE", "bad": "FFC7CE"}          # Excel's own «good» / «bad» cell colours
 
 
 def _format(col: str) -> str | None:
@@ -32,8 +33,9 @@ def _cell(v):
 
 
 def to_xlsx(sheets: list[tuple], header: list[str] = ()) -> bytes:
-    """sheets: (title, frame) or (title, frame, row_formats). row_formats — one number format per row
-    that overrides the column formats (a statement with ₽ and % rows); percent rows then hold fractions."""
+    """sheets: (title, frame[, row_formats[, marks]]). row_formats — one number format per row that
+    overrides the column formats (a statement with ₽ and % rows); percent rows then hold fractions.
+    marks — a frame like the table with «good» / «bad» / "" per cell: those cells are filled."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -42,6 +44,7 @@ def to_xlsx(sheets: list[tuple], header: list[str] = ()) -> bytes:
     wb.remove(wb.active)
     for title, df, *rest in sheets:
         row_formats = rest[0] if rest else None
+        marks = rest[1] if len(rest) > 1 else None
         ws = wb.create_sheet(str(title)[:31])
         for line in header:
             ws.append([line])
@@ -62,10 +65,13 @@ def to_xlsx(sheets: list[tuple], header: list[str] = ()) -> bytes:
                     v = v / 100
                 vals.append(v)
             ws.append(vals)
-            for c, fmt in zip(ws[ws.max_row], fmts):
+            for j, (c, fmt) in enumerate(zip(ws[ws.max_row], fmts)):
                 f = row_formats[i] if row_formats is not None else fmt
                 if f and isinstance(c.value, (int, float)):
                     c.number_format = f
+                fill = FILLS.get(marks.iat[i, j]) if marks is not None else None
+                if fill:
+                    c.fill = PatternFill("solid", fgColor=fill)
         for j, col in enumerate(df.columns, start=1):
             texts = [str(col)] + [str(v) for v in df.iloc[:, j - 1] if isinstance(v, str)]
             width = max(len(t) for t in texts) + 2 if fmts[j - 1] is None and row_formats is None else 15
