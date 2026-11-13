@@ -324,3 +324,33 @@ def test_zero_spend_statistics_do_not_split_ad_money():
 def test_ctr_tooltip_keeps_decimal_comma():
     from dashboard.views.report_charts import _int, _pct
     assert _pct(1.3) == "1,3" and _int(17347) == "17 347"
+
+
+def test_anomalies_relative_to_other_products_and_drr_by_limit():
+    from dashboard.views.products import anomalies
+    n = 12
+    t = pd.DataFrame({"Статус": ["прибыль"] * n + ["нет продаж"],
+                      "Маржа к выручке, %": [10.0] * (n - 2) + [40.0, -30.0] + [-99.0],
+                      "Логистика, % выручки": [5.0] * (n - 1) + [55.0] + [80.0],
+                      "ДРР к выручке, %": [3.0] * (n - 1) + [25.0] + [0.0]})
+    ref = t.iloc[:n]
+    m = anomalies(t, ref, "ДРР к выручке, %", pd.Series([False] * (n - 1) + [True, False]))
+    assert m.loc[n - 2, "Маржа к выручке, %"] == "good" and m.loc[n - 1, "Маржа к выручке, %"] == "bad"
+    assert m.loc[n - 1, "Логистика, % выручки"] == "bad"        # higher cost share is worse
+    assert m.loc[n - 1, "ДРР к выручке, %"] == "bad"
+    assert (m.loc[: n - 3] == "").all().all()
+    assert (m.loc[n] == "").all()                               # products without sales are not judged
+
+
+def test_anomalies_need_enough_products():
+    from dashboard.views.products import anomalies
+    t = pd.DataFrame({"Статус": ["прибыль"] * 4, "Маржа к выручке, %": [10.0, 11.0, 9.0, 90.0]})
+    assert (anomalies(t, t) == "").all().all()
+
+
+def test_short_labels():
+    from dashboard.views.products import short_label
+    assert short_label("Прибыль на 1 сделку, ₽", "на 1 сделку") == "Прибыль/сделку, ₽"
+    assert short_label("Маржа к выручке, %", "на 1 выкуп") == "Маржа, %"
+    assert short_label("Реклама «все товары», ₽", "на 1 выкуп") == "Рекл. общая, ₽"
+    assert short_label("Выручка, ₽", "на 1 выкуп") == "Выручка, ₽"
