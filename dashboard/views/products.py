@@ -89,11 +89,14 @@ def unit_economics(g: pd.DataFrame, base: str) -> pd.DataFrame:
             u[k] = g[col] / deals
         base_sum = g["sales_gross"] + g["cancelled_sum"]
 
+    # no positive base sum (returns outweigh sales) — margin and DRR mean nothing: a loss over
+    # a negative revenue would read as a huge positive margin
+    pos = base_sum.where(base_sum > 0)
     if base == "Заказы":
-        u["margin"] = u["profit"] / u["price"]
+        u["margin"] = (u["profit"] / u["price"]).where(pos.notna())
     else:
-        u["margin"] = g["profit"] / base_sum.replace(0, np.nan)
-    u["drr"] = -g["ads"] / base_sum.replace(0, np.nan)
+        u["margin"] = g["profit"] / pos
+    u["drr"] = -g["ads"] / pos
     return u
 
 

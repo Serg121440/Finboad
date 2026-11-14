@@ -37,6 +37,16 @@ def test_bases_differ_in_units_not_in_money():
     assert deals["profit"] == -1500
 
 
+def test_no_margin_when_returns_outweigh_sales():
+    # 1 sold for 100, a return of an earlier 3 000 sale: revenue −2 900, a loss of 3 500 —
+    # profit / revenue would read as a +120 % margin
+    g = _row(revenue=-2900, profit=-3500, ads=-50, sold=1, returned=1, net_qty=0, sales_gross=100,
+             ordered_qty=2, ordered_sum=-10, cancelled_qty=0, delivered_qty=1, cancelled_sum=-200)
+    for base in ("Выкупы", "Заказы", "Сделки"):
+        u = unit_economics(g, base).iloc[0]
+        assert pd.isna(u["margin"]) and pd.isna(u["drr"]), base
+
+
 def test_returns_only_is_not_a_loss():
     g = pd.concat([_row(sku="1", revenue=-7448, profit=-750, returned=2, net_qty=-2),
                    _row(sku="2", revenue=100, profit=-5, sold=1, net_qty=1),
