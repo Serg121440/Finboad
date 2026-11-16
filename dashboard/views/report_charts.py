@@ -12,7 +12,9 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from dashboard.common import MP_NAMES, rub
-from dashboard.theme import ACCENT, ADS_COLOR, DANGER, MP_COLORS, SUCCESS, WARN, apply_plotly_theme, kpi_card
+from dashboard.theme import (
+    ACCENT, ADS_COLOR, DANGER, MP_COLORS, SUCCESS, WARN, apply_plotly_theme, card, kpi_card,
+)
 from dashboard.views.products_overview import PLOT, SEP, _donut, _pp
 from pnl.engine import NO_SKU
 
@@ -239,21 +241,21 @@ def _heat_grid(title: str, sub: str, legend: list[tuple[str, str]], days: list, 
       .fb-heat .top {{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 16px; align-items:flex-start; }}
       .fb-heat h4 {{ margin:0; font-size:16px; line-height:22px; font-weight:700; color:inherit !important; }}
       .fb-heat .sub {{ font-size:13px; opacity:.65; margin-top:2px; }}
-      .fb-heat .lg {{ display:flex; flex-wrap:wrap; gap:6px 12px; font-size:11px; opacity:.8; }}
+      .fb-heat .lg {{ display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; opacity:.8; }}
       .fb-heat .lg span {{ display:inline-flex; align-items:center; gap:5px; }}
       .fb-heat .lg i {{ width:12px; height:12px; border-radius:3px; display:inline-block; }}
       .fb-heat .wrap {{ overflow-x:auto; margin-top:14px; }}
       .fb-heat .grid {{ min-width:880px; display:flex; flex-direction:column; gap:3px; }}
       .fb-heat .r {{ display:grid; gap:3px; align-items:center; }}
-      .fb-heat .h {{ font-size:10px; text-align:center; opacity:.55; }}
+      .fb-heat .h {{ font-size:11px; text-align:center; opacity:.55; }}
       .fb-heat .h.we {{ color:#8B5CF6; opacity:1; }}
-      .fb-heat .c {{ height:22px; border-radius:3px; }}
-      .fb-heat .n {{ display:flex; align-items:center; gap:7px; min-width:0; font-size:12px; padding-right:6px; }}
+      .fb-heat .c {{ height:22px; border-radius:5px; }}
+      .fb-heat .n {{ display:flex; align-items:center; gap:7px; min-width:0; font-size:13px; padding-right:6px; }}
       .fb-heat .dot {{ flex:none; width:8px; height:8px; border-radius:2px; }}
       .fb-heat .t {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }}
-      .fb-heat .tot {{ text-align:right; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }}
+      .fb-heat .tot {{ text-align:right; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }}
       .fb-heat .tot.bad {{ color:#EF4444; }}
-      .fb-heat .hd {{ font-size:10px; opacity:.55; text-align:right; }}
+      .fb-heat .hd {{ font-size:11px; opacity:.55; text-align:right; }}
     </style>
     <div class="fb-heat">
       <div class="top"><div><h4>{title}</h4><div class="sub">{sub}</div></div><div class="lg">{lg}</div></div>
@@ -437,19 +439,19 @@ def ads_donut(facts: pd.DataFrame, cabinets: pd.DataFrame):
 def ads_overview(res, prev, label: str, daily: pd.DataFrame, prev_daily: pd.DataFrame, g: pd.DataFrame,
                  cabinets: pd.DataFrame, limit: float):
     ads_kpis(res, prev, label, daily, prev_daily)
-    with st.container(border=True):
+    with card():
         ads_daily_chart(daily, cabinets, limit)
     names = g[["cabinet_id", "sku", "name", "article", "marketplace"]]
-    with st.container(border=True):
+    with card():
         drr_heatmap(daily, names, limit)
     if daily["views"].sum() > 0:
-        with st.container(border=True):
+        with card():
             ctr_heatmap(daily, names)
     a, b = st.columns([3, 2])
-    with a.container(border=True):
+    with card(a):
         if not ctr_vs_drr(daily, names, limit):
             ads_product_map(g, limit)
-    with b.container(border=True):
+    with card(b):
         ads_donut(res.facts, cabinets)
 
 
@@ -582,18 +584,18 @@ def cabinets_chart(facts: pd.DataFrame, cabinets: pd.DataFrame):
 
 def summary_overview(f, res, cur: pd.DataFrame, prev: pd.DataFrame, p0: date, p1: date):
     from dashboard.views.products_overview import waterfall
-    with st.container(border=True):
+    with card():
         pace_chart(cur, prev, f, p0, p1)
     a, b = st.columns(2)
-    with a.container(border=True):
+    with card(a):
         waterfall(res.facts)
-    with b.container(border=True):
+    with card(b):
         if res.facts["cabinet_id"].nunique() > 1:
             cabinets_chart(res.facts, f.cabinets)
         else:
             per100_bars({_cab_name(f.cabinets, res.facts["cabinet_id"].iloc[0]): res.facts}, "кабинет")
     if res.facts["cabinet_id"].nunique() > 1:
-        with st.container(border=True):
+        with card():
             per100_bars({_cab_name(f.cabinets, c): p for c, p in res.facts.groupby("cabinet_id")}, "по кабинетам")
 
 
@@ -679,12 +681,12 @@ def opiu_overview(facts: pd.DataFrame, g: pd.DataFrame, daily: pd.DataFrame, mon
     else:
         periods = g.assign(label=[m.split(" ·")[0] for m in months])[["label", "revenue", "profit", "ads"]]
         s = "м"
-    with st.container(border=True):
+    with card():
         trend_chart(periods, s)
         if s == "н":
             st.caption("По неделям — результат до налогов: налог считается за месяц. Неделя — с понедельника.")
     a, b = st.columns(2)
-    with a.container(border=True):
+    with card(a):
         per100_bars({m.split(" ·")[0]: p for m, (_, p) in zip(months, facts.groupby("month"))}, "по месяцам")
-    with b.container(border=True):
+    with card(b):
         ratio_chart(periods)

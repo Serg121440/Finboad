@@ -11,6 +11,7 @@ from core.crypto import SecretMissing, decrypt, encrypt, mask
 from core.db import session
 from core.models import Cabinet, LegalEntity, SyncRun, TaxSetting, now_msk
 from dashboard.common import MP_NAMES, data_changed, show_period
+from dashboard.theme import card
 from pnl.tax import REGIMES, VAT_MODES, regime_from_marketplace
 from sync import runner
 
@@ -228,7 +229,7 @@ def _cabinet_card(c: Cabinet, entities: dict):
                                help="Налоги считаются по юрлицу, по всем его кабинетам.")
         active = c3.toggle("Активен (ежедневная загрузка)", value=c.active, key=f"act_{c.id}")
         if new_ent == NEW_ENTITY:
-            with c2.container(border=True):
+            with card(c2):
                 if c.marketplace == "ozon" and c2.button("Взять из кабинета Ozon", key=f"ozent_{c.id}",
                                                         type="primary"):
                     try:

@@ -14,7 +14,7 @@ from plotly.subplots import make_subplots
 
 from dashboard.common import rub
 from dashboard.theme import (
-    ACCENT, ADS_COLOR, DANGER, MP_COLORS, SUCCESS, WARN, apply_plotly_theme, kpi_card,
+    ACCENT, ADS_COLOR, DANGER, MP_COLORS, SPARE, SUCCESS, WARN, apply_plotly_theme, card, kpi_card,
 )
 from pnl.engine import NO_SKU
 
@@ -45,6 +45,11 @@ def totals(g: pd.DataFrame) -> dict:
     return {"revenue": rev, "profit": profit, "ads": ads, "net_qty": g["net_qty"].sum(),
             "ordered_sum": g["ordered_sum"].sum(),
             "margin": profit / rev if rev > 0 else np.nan, "drr": ads / rev if rev > 0 else np.nan}
+
+
+def _wrap(label: str) -> str:
+    """Axis label on two lines instead of a tilted one."""
+    return {"Себестоимость": "Себе-<br>стоимость"}.get(label, label.replace(" ", "<br>", 1))
 
 
 def _pp(x: float) -> str:
@@ -120,15 +125,16 @@ def waterfall(before: pd.DataFrame):
     values = [rev, *(-e.values), profit]
     fig = go.Figure(go.Waterfall(
         # revenue as a «relative» step from zero: an «absolute» bar takes the totals colour
-        x=labels, y=values, measure=["relative", *["relative"] * len(e), "total"],
+        x=[_wrap(l) for l in labels], y=values, measure=["relative", *["relative"] * len(e), "total"],
         text=[f"{v / 1e6:.2f}".replace(".", ",") if abs(rev) >= 1e6 else f"{v / 1e3:.0f} тыс." for v in values],
         textposition="outside", connector=dict(line=dict(color="rgba(148,163,184,0.35)", width=1)),
-        increasing=dict(marker=dict(color=ACCENT)), decreasing=dict(marker=dict(color="rgba(239,68,68,0.6)")),
+        # expenses are neutral: only the result is coloured as good or bad
+        increasing=dict(marker=dict(color=ACCENT)), decreasing=dict(marker=dict(color=SPARE)),
         totals=dict(marker=dict(color=SUCCESS if profit >= 0 else DANGER)),
         customdata=[100, *(e.values / rev * 100), profit / rev * 100],
         hovertemplate="%{x}: %{y:,.0f} ₽ · %{customdata:.1f} % выручки<extra></extra>"))
     fig.update_layout(height=340, showlegend=False, separators=SEP, yaxis=dict(tickformat=",.0f"),
-                      margin=dict(t=30, l=10, r=10, b=10))
+                      xaxis=dict(tickangle=0), margin=dict(t=30, l=10, r=10, b=10))
     big = e.idxmax()
     st.markdown(f"**{big} — {e.max() / rev * 100:.0f} % выручки, самый большой расход**".replace(".", ","))
     st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
@@ -265,7 +271,7 @@ def leaders(items: pd.DataFrame, n: int = 5):
 def overview(g: pd.DataFrame, before: pd.DataFrame, prev: pd.DataFrame | None, label: str, daily: pd.DataFrame):
     items = g[g["sku"] != NO_SKU]
     kpi_row(g, prev, label)
-    with st.container(border=True):
+    with card():
         # days after the last loaded one are not zeros, they are not there yet
         has = daily[(daily["ordered_sum"] != 0) | (daily["ads"] != 0)]
         t = daily[daily["date"] <= has["date"].max()] if not has.empty else daily
@@ -279,17 +285,17 @@ def overview(g: pd.DataFrame, before: pd.DataFrame, prev: pd.DataFrame | None, l
         st.markdown(f"**Заказы и реклама по дням{cut}**")
         daily_chart(t, mp_color(g))
     a, b = st.columns([2, 1])
-    with a.container(border=True):
+    with card(a):
         waterfall(before)
-    with b.container(border=True):
+    with card(b):
         status_donut(items)
     a, b = st.columns([2, 1])
-    with a.container(border=True):
+    with card(a):
         product_map(items)
-    with b.container(border=True):
+    with card(b):
         leaders(items)
     a, b = st.columns(2)
-    with a.container(border=True):
+    with card(a):
         expense_donut(before)
-    with b.container(border=True):
+    with card(b):
         group_donut(items)
