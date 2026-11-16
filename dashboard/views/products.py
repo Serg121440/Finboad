@@ -549,11 +549,11 @@ def _hide_cogs_rows(df: pd.DataFrame) -> pd.DataFrame:
 def product_card(row: pd.Series, f, base: str):
     from dashboard.common import _loaded_intervals, daily_for, data_version
     from dashboard.quality import wb_report_ends
-    from dashboard.theme import apply_plotly_theme, DANGER, INFO, SUCCESS, WB_ACCENT
+    from dashboard.theme import apply_plotly_theme, card, DANGER, INFO, SUCCESS, WB_ACCENT
     import plotly.graph_objects as go
 
     st.divider()
-    with st.container(border=True):
+    with card():
         st.subheader(row["name"])
         st.caption(f"Артикул {row['article'] or '—'} · SKU {row['sku']} · {MP_NAMES.get(row['marketplace'], '')} · "
                    f"{row['cabinet']} · статус: {row['status']}")

@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from dashboard.theme import card
+
 
 def render():
     st.title("Доп. инструменты")
@@ -14,6 +16,6 @@ def render():
         ("Когортный учёт рекламы", "Реклама и выкупы, привязанные к неделе заказа: показывает итог недели без "
                                    "перекоса «реклама уже списана, а выкупов ещё нет»."),
     ]:
-        with st.container(border=True):
+        with card():
             st.markdown(f"**{title}** · в разработке")
             st.caption(text)

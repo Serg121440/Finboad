@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from core import config
 from core.db import session
 from core.models import Cabinet, LedgerEntry, LegalEntity, ShareLink, SyncRun, now_msk
+from dashboard.theme import card
 from pnl.engine import compute, summarize, NO_SKU
 
 MP_NAMES = {"ozon": "Ozon", "wb": "Wildberries"}
@@ -224,7 +225,7 @@ def period_filters(key: str = "flt") -> Filters | None:
     _remembered(f"{key}_cabs", list(labels), lambda v: all(x in labels for x in v))
     acc = st.session_state.get("access")
     owner = acc is not None and acc.owner
-    with st.container(border=True):
+    with card():
         c1, c2, c3, c4 = st.columns([1.3, 1.6, 2.2, 1.4] if owner else [1.3, 1.6, 3.6, 0.01],
                                     vertical_alignment="bottom")
         choice = c1.selectbox("Период", PERIODS, key=f"{key}_period", on_change=_keep, args=(f"{key}_period",))

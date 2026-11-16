@@ -4,6 +4,8 @@ Light and dark themes are Streamlit's own (.streamlit/config.toml): the app foll
 the device and the user switches in the ⋮ menu.
 """
 
+from html import escape
+
 import streamlit as st
 
 # Page, sidebar, text, inputs and menus come from Streamlit's own light/dark theme
@@ -13,13 +15,20 @@ import streamlit as st
 CARD = "color-mix(in srgb, currentColor 4%, transparent)"
 BORDER = "color-mix(in srgb, currentColor 14%, transparent)"
 MUTED = "color-mix(in srgb, currentColor 62%, transparent)"
-HOVER = "rgba(113,50,245,0.08)"
-ACCENT_BG = "rgba(113,50,245,0.14)"
+HOVER = "rgba(79,70,229,0.08)"
+ACCENT_BG = "rgba(79,70,229,0.14)"
 # UI accent (buttons, tabs, focus, hover borders) — deeper than the WB purple so white
 # text on it and small accent text pass 4.5:1. Accent text is mixed with the current
 # text colour: darker in the light theme, lighter in the dark one.
-ACCENT = "#7132F5"
-ACCENT_TEXT = "color-mix(in srgb, #7132F5 70%, currentColor)"
+ACCENT = "#4F46E5"
+ACCENT_TEXT = "color-mix(in srgb, #6366F1 70%, currentColor)"
+# Card layer: white on the warm page («Бумага»), a lighter step on the dark one («Графит»).
+# light-dark() reads the colour scheme Streamlit sets on .stApp, so it follows a theme
+# switch without a rerun; browsers without it keep the tints above.
+SURFACE = "var(--fb-card)"
+LINE = "var(--fb-line)"
+SHADOW = "var(--fb-shadow)"
+SPARE = "#94A3B8"        # ordinary expenses in charts: neither good nor bad
 
 # Brand accents (одинаковы в обеих темах)
 WB_ACCENT   = "#8B5CF6"
@@ -42,13 +51,16 @@ def theme_toggle_sidebar():
 
 
 def plotly_layout() -> dict:
-    grid = "rgba(148,163,184,0.25)"
+    grid = "rgba(148,163,184,0.16)"
+    font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    axis = dict(gridcolor=grid, gridwidth=1, zerolinecolor="rgba(148,163,184,0.4)", zerolinewidth=1,
+                showline=False, ticks="", automargin=True)
     return dict(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, -apple-system, sans-serif", color="#94A3B8", size=12),
-        xaxis=dict(gridcolor=grid, zerolinecolor=grid, linecolor=grid),
-        yaxis=dict(gridcolor=grid, zerolinecolor=grid, linecolor=grid),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        font=dict(family=font, color="#8A94A6", size=12),
+        xaxis=axis, yaxis=axis, barcornerradius=5,
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=12)),
+        hoverlabel=dict(font=dict(family=font, size=13), bordercolor="rgba(0,0,0,0)"),
         margin=dict(l=10, r=10, t=40, b=10),
     )
 
@@ -61,47 +73,65 @@ def apply_plotly_theme(fig):
 
 def inject_css():
     """Global CSS; colours that differ between themes are left to Streamlit."""
+    st.session_state["_fb_cards"] = 0          # card keys restart with every run
     st.html(f"""
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-      html, body, [class*="css"], .stApp {{
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+      .stApp {{
+        --fb-card: {CARD}; --fb-line: {BORDER}; --fb-shadow: none;
+        font-variant-numeric: tabular-nums;
+      }}
+      @supports (color: light-dark(#fff, #000)) {{
+        .stApp {{
+          --fb-card: light-dark(#FFFFFF, #161B26);
+          --fb-line: light-dark(#E4E2DB, #262D3D);
+          --fb-shadow: 0 1px 2px light-dark(rgba(17,24,39,0.05), rgba(0,0,0,0.30)),
+                       0 8px 24px light-dark(rgba(17,24,39,0.06), rgba(0,0,0,0.22));
+        }}
       }}
 
-      .fb-spark {{ display: block; width: 100%; height: 30px; margin-top: 8px; }}
+      .fb-spark {{ display: block; width: 100%; height: 30px; margin-top: 10px; }}
 
-      /* Headings */
-      h1, h2, h3, h4 {{ letter-spacing: -0.01em; font-weight: 700 !important; }}
+      /* Type scale: 12 / 13 / 14 / 16 / 20 / 28 */
+      h1, h2, h3, h4 {{ letter-spacing: -0.02em; font-weight: 700 !important; }}
       h1 {{ font-size: 28px !important; }}
       h2 {{ font-size: 20px !important; }}
       h3 {{ font-size: 16px !important; color: {MUTED} !important; font-weight: 600 !important; }}
 
+      /* Cards: every framed block (theme.card) sits on the card layer */
+      [class*="st-key-fbcard"] {{
+        background: {SURFACE}; border-color: {LINE} !important; border-radius: 16px !important;
+        box-shadow: {SHADOW}; padding: 20px !important;
+      }}
+
       /* Metric cards */
       div[data-testid="stMetric"] {{
-        background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
-        transition: border-color 0.2s;
+        background: {SURFACE}; border: 1px solid {LINE}; border-radius: 16px; padding: 18px 20px;
+        box-shadow: {SHADOW};
       }}
-      div[data-testid="stMetric"]:hover {{ border-color: {ACCENT}; }}
       div[data-testid="stMetricLabel"] p {{
-        color: {MUTED} !important; font-size: 10px !important; font-weight: 600 !important;
-        text-transform: uppercase; letter-spacing: 0.6px;
+        color: {MUTED} !important; font-size: 13px !important; font-weight: 500 !important;
       }}
       div[data-testid="stMetricValue"] {{
-        font-size: 22px !important; font-weight: 700 !important; font-variant-numeric: tabular-nums;
+        font-size: 28px !important; font-weight: 700 !important; letter-spacing: -0.02em;
       }}
+
+      /* Sidebar: the open page in the accent tint */
+      [data-testid="stSidebarNav"] a[aria-current="page"] {{ background: {ACCENT_BG}; }}
+      [data-testid="stSidebarNav"] a[aria-current="page"] span {{ color: {ACCENT_TEXT}; }}
 
       /* Buttons */
       .stButton > button, .stDownloadButton > button {{ border-radius: 8px; font-weight: 500; }}
       .stButton > button:hover, .stDownloadButton > button:hover {{ border-color: {ACCENT}; }}
 
       /* Expanders, uploader, tables */
-      details[data-testid="stExpander"] {{ border-radius: 10px !important; }}
-      [data-testid="stFileUploader"] section {{ border: 1px dashed {BORDER}; border-radius: 10px; }}
-      .stDataFrame, [data-testid="stTable"] {{ border-radius: 10px; }}
+      details[data-testid="stExpander"] {{ border-radius: 12px !important; }}
+      [data-testid="stFileUploader"] section {{ border: 1px dashed {BORDER}; border-radius: 12px; }}
+      .stDataFrame, [data-testid="stTable"] {{ border-radius: 12px; }}
+      [data-testid="stAlert"] > div {{ border-radius: 12px; }}
 
       /* Tabs */
       .stTabs [data-baseweb="tab-list"] {{
-        gap: 4px; background: {CARD}; border-radius: 10px; padding: 4px; border: 1px solid {BORDER};
+        gap: 4px; background: {CARD}; border-radius: 12px; padding: 4px; border: 1px solid {BORDER};
       }}
       .stTabs [data-baseweb="tab"] {{
         background: transparent; color: {MUTED}; border-radius: 8px; padding: 8px 16px; font-weight: 500;
@@ -124,24 +154,26 @@ def inject_css():
 
       /* KPI cards */
       .fb-kpi {{
-        background: {CARD}; border: 1px solid {BORDER}; border-radius: 12px; padding: 16px 18px;
-        min-height: 90px; transition: border-color .2s;
+        background: {SURFACE}; border: 1px solid {LINE}; border-radius: 16px; padding: 18px;
+        min-height: 108px; margin-bottom: 8px; box-shadow: {SHADOW}; transition: border-color .2s, transform .2s;
       }}
-      .fb-kpi:hover {{ border-color: {ACCENT}; }}
-      .fb-kpi-label {{
-        font-size: 10px; color: {MUTED}; font-weight: 600; text-transform: uppercase;
-        letter-spacing: 0.6px; margin-bottom: 8px;
+      .fb-kpi:hover {{ border-color: {ACCENT}; transform: translateY(-1px); }}
+      /* one line each, so cards in a row keep the same height; the full text is in the tooltip */
+      .fb-kpi-label, .fb-kpi-delta {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+      .fb-kpi-label {{ font-size: 13px; color: {MUTED}; font-weight: 500; margin-bottom: 8px; line-height: 1.3; }}
+      .fb-kpi-value {{
+        font-size: clamp(22px, 2vw, 28px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+        white-space: nowrap;
       }}
-      .fb-kpi-value {{ font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }}
-      .fb-kpi-delta {{ font-size: 11px; font-weight: 600; margin-top: 4px; color: {MUTED}; }}
+      .fb-kpi-delta {{ font-size: 12px; font-weight: 500; margin-top: 6px; color: {MUTED}; }}
       .fb-kpi-delta.up {{ color: {SUCCESS}; }}
       .fb-kpi-delta.down {{ color: {DANGER}; }}
 
       /* Pills / status */
       .fb-pill {{
         display: inline-block; padding: 4px 10px; border-radius: 12px;
-        font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
-        background: rgba(113,50,245,0.12); color: {ACCENT_TEXT}; border: 1px solid rgba(113,50,245,0.25);
+        font-size: 12px; font-weight: 600;
+        background: rgba(79,70,229,0.12); color: {ACCENT_TEXT}; border: 1px solid rgba(79,70,229,0.25);
       }}
       .fb-pill-ozon {{ background: rgba(0,91,255,0.14); color: color-mix(in srgb, {OZON_ACCENT} 70%, currentColor); border-color: rgba(0,91,255,0.3); }}
       .fb-pill-ok   {{ background: rgba(16,185,129,0.12); color: {SUCCESS};     border-color: rgba(16,185,129,0.25); }}
@@ -151,7 +183,8 @@ def inject_css():
       /* Tree table: P&L lines that open into their accrual types */
       .fb-tree {{
         --fb-tree-label: 260px;
-        overflow-x: auto; border: 1px solid {BORDER}; border-radius: 10px; font-size: 14px;
+        overflow-x: auto; border: 1px solid {LINE}; border-radius: 16px; font-size: 14px;
+        background: {SURFACE}; box-shadow: {SHADOW};
       }}
       @media (max-width: 640px) {{ .fb-tree {{ --fb-tree-label: 170px; font-size: 13px; }} }}
       .fb-tree details > summary {{ list-style: none; cursor: pointer; }}
@@ -159,12 +192,12 @@ def inject_css():
       .fb-tree details > summary::marker {{ content: ""; }}
       .fb-tree-row {{
         display: grid; grid-template-columns: var(--fb-tree-cols); align-items: center;
-        border-bottom: 1px solid {BORDER}; min-height: 36px;
+        border-bottom: 1px solid {LINE}; min-height: 40px;
       }}
-      .fb-tree-row > div {{ padding: 6px 12px; }}
-      .fb-tree-row > .num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
-      .fb-tree-note {{ display: block; font-size: 11px; color: {MUTED}; line-height: 1.2; }}
-      .fb-tree-head {{ background: {CARD}; color: {MUTED}; font-size: 13px; }}
+      .fb-tree-row > div {{ padding: 7px 14px; }}
+      .fb-tree-row > .num {{ text-align: right; white-space: nowrap; }}
+      .fb-tree-note {{ display: block; font-size: 12px; color: {MUTED}; line-height: 1.2; }}
+      .fb-tree-head {{ background: {CARD}; color: {MUTED}; font-size: 13px; font-weight: 500; }}
       .fb-tree summary.fb-tree-row:hover {{ background: {HOVER}; }}
       .fb-tree-row.strong {{ font-weight: 600; background: {CARD}; }}
       .fb-tree-row.sub {{ color: {MUTED}; font-size: 13px; }}
@@ -186,6 +219,12 @@ def inject_css():
     """)
 
 
+def card(parent=st):
+    """Framed block on the card layer (white in the light theme, a raised step in the dark one)."""
+    n = st.session_state["_fb_cards"] = st.session_state.get("_fb_cards", 0) + 1
+    return parent.container(border=True, key=f"fbcard{n}")
+
+
 def brand_block():
     """Sidebar brand header — call inside st.sidebar."""
     st.markdown(
@@ -201,8 +240,6 @@ def tree_table(columns: list[str], rows: list[dict], label_title: str = "Пок�
     """Table whose rows open into nested rows (без JS: <details>).
     row = {"label": str, "values": [str | (str, note) per column], "children": [row, ...], "strong": bool};
     a note is drawn small under the value."""
-    from html import escape
-
     def cell(v) -> str:
         main, note = v if isinstance(v, tuple) else (v, "")
         note = f'<span class="fb-tree-note">{escape(note)}</span>' if note else ""
@@ -276,9 +313,9 @@ def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted"
         spark = '<div class="fb-spark"></div>'
     st.markdown(f"""
     <div class="fb-kpi">
-      <div class="fb-kpi-label">{label}</div>
+      <div class="fb-kpi-label" title="{escape(label)}">{label}</div>
       <div class="fb-kpi-value">{value}</div>
-      <div class="fb-kpi-delta {delta_color}">{arrow}{delta}&nbsp;</div>
+      <div class="fb-kpi-delta {delta_color}" title="{escape(delta)}">{arrow}{delta}&nbsp;</div>
       {spark}
     </div>
     """, unsafe_allow_html=True)

@@ -3,39 +3,50 @@ headless = true
 enableCORS = false
 enableXsrfProtection = false
 fileWatcherType = "none"
+enableStaticServing = true      # dashboard/static: the Inter font file
 
 [browser]
 gatherUsageStats = false
 
 # Light and dark themes: the app follows the device (day/night) and the user can
 # switch in ⋮ → Settings. Tables and editors are recoloured together with the page.
+# «Бумага» (light): warm page, white cards and inputs. «Графит» (dark): page, card and
+# raised layers instead of frames. secondaryBackgroundColor is the card layer in both.
 [theme]
-primaryColor = "#7132F5"
-font = "sans serif"
-baseRadius = "medium"
+primaryColor = "#4F46E5"
+font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+baseRadius = "0.5rem"
+showWidgetBorder = true
+
+# One font for everything, served by the app itself (no third-party font host).
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/InterVariable.woff2"
+weight = "100 900"
+style = "normal"
 
 [theme.light]
-primaryColor = "#7132F5"
-backgroundColor = "#F8FAFC"
-secondaryBackgroundColor = "#F1F4F9"
-textColor = "#0F172A"
-borderColor = "#E2E8F0"
-dataframeHeaderBackgroundColor = "#EEF2F7"
+primaryColor = "#4F46E5"
+backgroundColor = "#F6F5F1"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111827"
+borderColor = "#E4E2DB"
+dataframeHeaderBackgroundColor = "#F3F2EE"
 
 [theme.light.sidebar]
-backgroundColor = "#F1F4F9"
-secondaryBackgroundColor = "#E7ECF3"
-textColor = "#0F172A"
+backgroundColor = "#EFEDE7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111827"
 
 [theme.dark]
-primaryColor = "#7132F5"
-backgroundColor = "#0B0E14"
-secondaryBackgroundColor = "#151A26"
-textColor = "#E6EDF3"
-borderColor = "#1E2435"
-dataframeHeaderBackgroundColor = "#1A2030"
+primaryColor = "#6366F1"
+backgroundColor = "#0C0F16"
+secondaryBackgroundColor = "#161B26"
+textColor = "#E6EAF2"
+borderColor = "#262D3D"
+dataframeHeaderBackgroundColor = "#1B2130"
 
 [theme.dark.sidebar]
-backgroundColor = "#0D111C"
-secondaryBackgroundColor = "#151A26"
-textColor = "#E6EDF3"
+backgroundColor = "#090C12"
+secondaryBackgroundColor = "#161B26"
+textColor = "#E6EAF2"
