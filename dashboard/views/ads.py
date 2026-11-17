@@ -118,7 +118,9 @@ def _product_dialog(row: dict, daily: pd.DataFrame, limit: float):
                "Период и кабинеты — как на странице.")
 
 
+@st.fragment
 def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
+    """A fragment: a click on a row or another selection reruns only the table, not the whole page."""
     m = picks(g, limit)
     counts = {k: int(v.sum()) for k, v in m.items()}
     options = [k for k in PICKS if k == "Все товары" or counts[k]]
