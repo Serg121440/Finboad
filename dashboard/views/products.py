@@ -332,12 +332,10 @@ def render():
     if f is None:
         st.info("Кабинетов пока нет.")
         return
-    # the unit base is chosen above the table; the card and the cached table key need it before that
+    # the unit base is chosen above the table; the table part reads it before its widget
     st.session_state.setdefault("prod_base", "Выкупы")
     if st.session_state["prod_base"] not in BASES:
         st.session_state["prod_base"] = "Выкупы"
-    base = st.session_state["prod_base"]
-    _, per, to, note = BASES[base]
     days = (f.date_to - f.date_from).days + 1
     if days < SHORT_PERIOD_DAYS:
         st.caption(f":material/info: Период {days} дн.: выкупают в основном заказы прошлых недель, а заказы "
@@ -350,13 +348,25 @@ def render():
     limit = drr_limit()
     issues = quality_block(f, res, [i for i in attention_issues(attention_counts(g, limit), limit)
                                     if "Высокий" in i.text], key="q_prod", compact=True)
-    u = unit_economics(g, base)
 
     p0, p1, label = previous_period(f.date_from, f.date_to)
     pres = result_for(Filters(p0, p1, f.cabinet_ids, f.cabinets))
     prev = None if pres.facts.empty else product_table(Filters(p0, p1, f.cabinet_ids, f.cabinets), pres)[1]
     daily = daily_totals_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), data_version())
     overview(g, before, prev, label, daily)
+    _all_products(f, g, issues, limit)
+    _reconciliation(before, g)
+
+
+@st.fragment
+def _all_products(f, g: pd.DataFrame, issues, limit: float):
+    """The table with its filters and the card. A fragment: a click on a row, a search or a filter reruns
+    only this part, not the period's P&L, the overview and the charts above (on 4 cabinets that took 15–20 s)."""
+    if drr_limit() != limit:
+        st.rerun()                  # the «Высокий ДРР» threshold also feeds the warnings above the table
+    base = st.session_state["prod_base"]
+    _, per, to, note = BASES[base]
+    u = unit_economics(g, base)
     st.subheader("Все товары")
 
     mps = [m for m in ("ozon", "wb") if (g["marketplace"] == m).any()]
@@ -469,7 +479,9 @@ def render():
     header = [f"Товары {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, показатели «на единицу» — "
               f"{BASES[base][1]}", status_line(issues)]
     d1, d2, _ = st.columns([1, 1, 3])
-    d1.download_button("Скачать Excel", to_xlsx([("Товары", out, None, marks if highlight else None)], header),
+    # the file is built on the click, not on every rerun (on 1780 products it took seconds)
+    d1.download_button("Скачать Excel", lambda: to_xlsx([("Товары", out, None, marks if highlight else None)], header),
+                       on_click="ignore",
                        file_name=f"{name}.xlsx",
                        mime=MIME, width="stretch", help="Все показатели по товарам в таблице выше: "
                        "с текущими выборкой, поиском и площадкой")
@@ -490,8 +502,6 @@ def render():
     pick = (sel_key, rows[0]) if rows and rows[0] < len(v) else None
     if picked_now("products", pick):
         _card_dialog(v.iloc[rows[0]], f, base)
-
-    _reconciliation(before, g)
 
 
 # ── product card ─────────────────────────────────────────────────────────────
@@ -622,7 +632,8 @@ def product_card(row: pd.Series, f, base: str):
                    "отчёта, среди них есть заказы прошлых периодов.")
 
         st.markdown("**По дням**")
-        d = daily_for(f.date_from, f.date_to, int(row["cabinet_id"]), str(row["sku"]), data_version())
+        d = daily_for(f.date_from, f.date_to, tuple(sorted(f.cabinet_ids)), int(row["cabinet_id"]),
+                      str(row["sku"]), data_version())
         show_ads = st.toggle("Показать рекламу", value=True, key="card_ads")
         fig = go.Figure()
         fig.add_bar(x=d["date"], y=d["revenue"], name="Выручка", marker_color=INFO, opacity=0.45)

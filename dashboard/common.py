@@ -376,47 +376,53 @@ def plural(n: int, one: str, few: str, many: str) -> str:
 
 # ── calculation (cached) ─────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300, max_entries=6, show_spinner="Загружаю данные…")
+def loaded(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = ""):
+    """The raw data (pnl.data.load: the period plus the year before it) read once for every view of the
+    period: the P&L, the day-by-day charts and each product card. Before, each of them and every new
+    card read the whole year again from the database."""
+    from pnl.data import load
+    return load(date_from, date_to, list(cabinet_ids))
+
+
 @st.cache_data(ttl=300, show_spinner="Считаю…")
 def calc(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = ""):
     """version changes whenever a load finishes, so new data is never hidden by the cache."""
-    from pnl.data import load
-    return compute(load(date_from, date_to, list(cabinet_ids)))
+    return compute(loaded(date_from, date_to, cabinet_ids, version))
 
 
 @st.cache_data(ttl=300, show_spinner="Считаю по дням…")
-def daily_for(date_from: date, date_to: date, cabinet_id: int, sku: str, version: str = "") -> pd.DataFrame:
-    """One product by day (pnl.engine.daily) for its card."""
-    from pnl.data import load
+def daily_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], cabinet_id: int, sku: str,
+              version: str = "") -> pd.DataFrame:
+    """One product by day (pnl.engine.daily) for its card, from the data already read for the page."""
     from pnl.engine import daily
-    return daily(load(date_from, date_to, [cabinet_id]), cabinet_id, sku)
+    return daily(loaded(date_from, date_to, cabinet_ids, version), cabinet_id, sku)
 
 
 @st.cache_data(ttl=300, show_spinner="Считаю по дням…")
 def daily_totals_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
     """All products of the cabinets by day (pnl.engine.daily_totals): orders and ads."""
-    from pnl.data import load
     from pnl.engine import daily_totals
-    return daily_totals(load(date_from, date_to, list(cabinet_ids)))
+    return daily_totals(loaded(date_from, date_to, cabinet_ids, version))
 
 
 @st.cache_data(ttl=300, show_spinner="Считаю по дням…")
 def daily_results_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
     """Each cabinet by day (pnl.engine.daily_results): money lines and the result before taxes."""
-    from pnl.data import load
     from pnl.engine import daily_results
-    return daily_results(load(date_from, date_to, list(cabinet_ids)))
+    return daily_results(loaded(date_from, date_to, cabinet_ids, version))
 
 
 @st.cache_data(ttl=300, show_spinner="Считаю рекламу по дням…")
 def ads_daily_for(date_from: date, date_to: date, cabinet_ids: tuple[int, ...], version: str = "") -> pd.DataFrame:
     """Ads and orders per cabinet, day and product (pnl.engine.ads_daily)."""
-    from pnl.data import load
     from pnl.engine import ads_daily
-    return ads_daily(load(date_from, date_to, list(cabinet_ids)))
+    return ads_daily(loaded(date_from, date_to, cabinet_ids, version))
 
 
 def data_changed():
     """Call after edits (cost, fixed costs, settings) so pages recalculate."""
+    loaded.clear()
     calc.clear()
     daily_for.clear()
     daily_totals_for.clear()
