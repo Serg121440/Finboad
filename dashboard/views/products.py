@@ -203,6 +203,12 @@ def attention_counts(g: pd.DataFrame, limit: float) -> dict:
             "high_drr": int(quick_mask(g, "Высокий ДРР", limit).sum())}
 
 
+def cabinet_tag(v: pd.DataFrame) -> pd.Series:
+    """«WB · Perfetto»: the same article in two cabinets is two products with their own money."""
+    mp = v["marketplace"].map({"wb": "WB", "ozon": "Ozon"}).fillna(v["marketplace"].astype(str))
+    return mp + " · " + v["cabinet"].fillna("").astype(str)
+
+
 def short_name(name: str) -> str:
     return name if len(name) <= NAME_LEN else name[:NAME_LEN - 1].rstrip() + "…"
 
@@ -280,7 +286,7 @@ def product_rows(v: pd.DataFrame, per: str, to: str) -> pd.DataFrame:
         "Общие расходы МП, ₽": v["other_common"], f"ДРР {to}, %": v["u_drr"] * 100,
         "Себестоимость, ₽": v["cogs"], "Налоги, ₽": v["vat"] + v["tax"],
         **{f"{t} {per}, ₽": v[f"u_{k}"] for k, t in UNIT_LINES.items() if k != "profit"},
-        "SKU": v["sku"], "Кабинет": v["cabinet"], "МП": v["marketplace"].map(MP_NAMES),
+        "SKU": v["sku"], "Кабинет": cabinet_tag(v), "МП": v["marketplace"].map(MP_NAMES),
     })
 
 
@@ -421,9 +427,10 @@ def render():
     csv = status_line(issues) + "\n\n" + out.to_csv(index=False, sep=";")
 
     cols = vnames[view_name]
-    tail = ["МП"] if len(mps) > 1 else []
-    shown = out[["Артикул", "Товар"] + [c for c in (cols or list(out.columns[2:])) if c in out.columns
-                                         and c not in ("Артикул", "Товар")] + [c for c in tail if cols]]
+    # the cabinet (with its marketplace) next to the name whenever more than one is selected
+    head = ["Артикул", "Товар"] + (["Кабинет"] if v["cabinet_id"].nunique() > 1 else [])
+    shown = out[head + [c for c in (cols or list(out.columns[2:])) if c in out.columns
+                        and c not in head and c != "МП"]]
     shown = shown.assign(Товар=shown["Товар"].map(short_name))
     # the grid draws empty numbers as «None»: columns that can be empty become text with «—»
     blank = [c for c in shown.columns if shown[c].dtype.kind == "f" and shown[c].isna().any()]
@@ -450,8 +457,10 @@ def render():
                          on_select="rerun", selection_mode="single-row", column_config={
                              **{c: (st.column_config.TextColumn(short_label(c, per), help=c, alignment="right")
                                     if c in blank else st.column_config.Column(short_label(c, per), help=c))
-                                for c in shown.columns[2:]},
+                                for c in shown.columns[len(head):]},
                              "Артикул": st.column_config.TextColumn(pinned=True),
+                             "Кабинет": st.column_config.TextColumn(pinned=True, width="small",
+                                                                    help="Площадка и кабинет"),
                              "Товар": st.column_config.TextColumn(pinned=True, width="medium",
                                                                   help="Полное название — в карточке товара"),
                          })
