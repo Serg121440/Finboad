@@ -10,7 +10,7 @@ from dashboard.common import (
 )
 from dashboard.quality import quality_block, status_line
 from dashboard.theme import card
-from dashboard.views.products import drr_limit
+from dashboard.views.products import cabinet_tag, drr_limit
 from dashboard.views.products_overview import previous_period
 from dashboard.views.report_charts import (
     DRR_NAMES, MIN_VIEWS, _pct, ads_daily_chart, ads_donut, ads_kpis, ads_product_map, ctr_heatmap, ctr_vs_drr,
@@ -136,6 +136,7 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
                       column_config={
                           "Товар": st.column_config.TextColumn(pinned=True, width="large"),
                           "Артикул": st.column_config.TextColumn(pinned=True, width=120),
+                          "Кабинет": st.column_config.TextColumn(pinned=True, width="small"),
                           "Расход, ₽": money, "Заказы, ₽": money, "Прибыль, ₽": money,
                           **{c: money for c in out.columns if "ДРР" in c}, "CTR, %": money,
                       })
@@ -148,10 +149,10 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
 
 def _frame(v: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({
-        "Товар": v["name"].map(short_name), "Артикул": v["article"], "Расход, ₽": v["spend"],
+        "Товар": v["name"].map(short_name), "Артикул": v["article"], "Кабинет": cabinet_tag(v),
+        "Расход, ₽": v["spend"],
         DRR_NAMES["drr"] + ", %": v["drr"], DRR_NAMES["drr_orders"] + ", %": v["drr_orders"],
         "Заказы, ₽": v["ordered_sum"], "CTR, %": v["ctr"], "Прибыль, ₽": v["profit"],
-        "Кабинет": v["cabinet"],
     })
 
 

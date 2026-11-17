@@ -597,3 +597,10 @@ def test_pace_chart_shows_negative_revenue_below_zero():
     ys = [float(y) for y in re.search(r'<path d="M([^"V]+)" fill="none" stroke="#A9B6FF"', svg).group(1).split()[1::2]]
     assert ys[1] == H - PAD_B and ys[0] == PAD_T                      # −500 at the bottom, 1 000 at the top
     assert "−500" in svg or "-500" in svg
+
+
+def test_cabinet_tag_names_marketplace_and_cabinet():
+    import pandas as pd
+    from dashboard.views.products import cabinet_tag
+    v = pd.DataFrame({"marketplace": ["wb", "ozon"], "cabinet": ["Perfetto", "Перфетто"]})
+    assert list(cabinet_tag(v)) == ["WB · Perfetto", "Ozon · Перфетто"]
