@@ -585,3 +585,15 @@ def test_cabinets_table_with_no_positive_revenue():
     f["revenue"], f["profit"] = [-100.0, -50.0], [-120.0, -60.0]
     rows = cabinet_rows(f, _hero_cabinets())
     assert cabinet_scale(rows) == CAB_SCALE and "Альфа" in cabinets_html(rows)
+
+
+def test_pace_chart_shows_negative_revenue_below_zero():
+    from datetime import date
+    import re
+    import pandas as pd
+    from dashboard.views.summary_hero import H, PAD_B, PAD_T, pace_svg
+    days = pd.DataFrame({"date": [date(2026, 11, 1), date(2026, 11, 2)], "cum": [1000.0, -500.0]})
+    svg = pace_svg(days, days.iloc[0:0], 2, "x")
+    ys = [float(y) for y in re.search(r'<path d="M([^"V]+)" fill="none" stroke="#A9B6FF"', svg).group(1).split()[1::2]]
+    assert ys[1] == H - PAD_B and ys[0] == PAD_T                      # −500 at the bottom, 1 000 at the top
+    assert "−500" in svg or "-500" in svg

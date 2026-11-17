@@ -64,17 +64,22 @@ def pace_svg(days: pd.DataFrame, before: pd.DataFrame, total_days: int, pname: s
     """The pace as one inline SVG: this period — line with a fill, the previous one — dashes."""
     if len(days) < 2:
         return ""
-    top = max(days["cum"].max(), before["cum"].max() if len(before) else 0) or 1
+    # returns can take the cumulative revenue below zero: the scale covers both signs
+    top = max(days["cum"].max(), before["cum"].max() if len(before) else 0, 0)
+    lo = min(days["cum"].min(), before["cum"].min() if len(before) else 0, 0)
+    span = (top - lo) or 1
     n = max(total_days, len(before), 2)
 
     def xy(i, v):
-        return 20 + i / (n - 1) * (W - 40), H - PAD_B - max(v, 0) / top * (H - PAD_B - PAD_T)
+        return 20 + i / (n - 1) * (W - 40), H - PAD_B - (v - lo) / span * (H - PAD_B - PAD_T)
 
     def path(vals):
         return " ".join(f"{x:.1f} {y:.1f}" for x, y in (xy(i, v) for i, v in enumerate(vals)))
 
-    base = H - PAD_B
-    grid = "".join(f'<path d="M20 {base - k / 4 * (base - PAD_T):.1f}H{W - 20}"/>' for k in range(5))
+    base = xy(0, 0)[1]                      # the zero line: the fill goes to it
+    bottom = H - PAD_B
+    grid = "".join(f'<path d="M20 {bottom - k / 4 * (bottom - PAD_T):.1f}H{W - 20}"/>' for k in range(5))
+    zero = f'<path d="M20 {base:.1f}H{W - 20}" stroke="#fff" stroke-opacity=".3"/>' if lo < 0 else ""
     line = path(days["cum"])
     last_x, last_y = xy(len(days) - 1, days["cum"].iloc[-1])
     dots = "".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" fill="transparent">'
@@ -96,8 +101,9 @@ def pace_svg(days: pd.DataFrame, before: pd.DataFrame, total_days: int, pname: s
         f'<g stroke="#fff" stroke-opacity=".08">{grid}</g>'
         f'<g fill="#8A91A0" font-size="16"><text x="20" y="{H - 10}">{days["date"].iloc[0]:%d.%m}</text>'
         f'<text x="{last_x:.1f}" y="{H - 10}" text-anchor="{"end" if last_x > W - 60 else "middle"}">'
-        f'{days["date"].iloc[-1]:%d.%m}</text><text x="24" y="{PAD_T + 20}">{_short(top)}</text></g>'
-        f'{prev_line}<path d="M{line} V{base} H20Z" fill="url(#fbPace)"/>'
+        f'{days["date"].iloc[-1]:%d.%m}</text><text x="24" y="{PAD_T + 20}">{_short(top)}</text>'
+        + (f'<text x="24" y="{bottom - 6}">{_short(lo)}</text>' if lo < 0 else "") + '</g>'
+        f'{zero}{prev_line}<path d="M{line} V{base:.1f} H20Z" fill="url(#fbPace)"/>'
         f'<path d="M{line}" fill="none" stroke="#A9B6FF" stroke-width="2.6" stroke-linejoin="round" '
         'stroke-linecap="round"/>'
         f'<circle cx="{last_x:.1f}" cy="{last_y:.1f}" r="5" fill="#A9B6FF" stroke="#14161C" stroke-width="2"/>'
