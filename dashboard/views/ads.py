@@ -6,7 +6,8 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, Filters, ads_daily_for, data_version, pct, result_for, rub, period_filters, summarize, with_names,
+    MP_NAMES, Filters, ads_daily_for, data_version, pct, picked_now, result_for, rub, period_filters, summarize,
+    with_names,
 )
 from dashboard.quality import quality_block, status_line
 from dashboard.theme import card
@@ -143,7 +144,7 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
     st.caption("Расход здесь — реклама, отнесённая к конкретному товару. Общая реклама в таблицу не входит. "
                "Нажмите на строку — откроется разбор товара по дням.")
     rows = ev.selection.rows if ev and ev.selection else []
-    if rows:
+    if picked_now("ads", (pick, rows[0]) if rows else None):
         _product_dialog(v.iloc[rows[0]].to_dict(), daily, limit)
 
 
