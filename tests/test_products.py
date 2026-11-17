@@ -364,3 +364,67 @@ def test_short_labels():
     assert short_label("Маржа к выручке, %", "на 1 выкуп") == "Маржа, %"
     assert short_label("Реклама «все товары», ₽", "на 1 выкуп") == "Рекл. общая, ₽"
     assert short_label("Выручка, ₽", "на 1 выкуп") == "Выручка, ₽"
+
+
+# ── «Финансовый результат»: верх страницы ────────────────────────────────────
+
+def _hero_facts():
+    import pandas as pd
+    return pd.DataFrame({
+        "cabinet_id": [1, 2], "revenue": [1000.0, 500.0], "commission": [-400.0, -200.0],
+        "logistics": [-100.0, -150.0], "storage": [0.0, 0.0], "penalties": [0.0, 0.0], "services": [0.0, 0.0],
+        "other": [0.0, 0.0], "ads": [-50.0, -100.0], "cogs": [-300.0, -150.0], "vat": [0.0, 0.0],
+        "tax": [0.0, 0.0], "profit": [150.0, -100.0]})
+
+
+def _hero_cabinets():
+    import pandas as pd
+    return pd.DataFrame({"id": [1, 2], "name": ["Альфа", "Бета"], "marketplace": ["ozon", "wb"]})
+
+
+def test_cabinet_rows_per_100_and_order():
+    from dashboard.views.summary_hero import cabinet_rows
+    rows = cabinet_rows(_hero_facts(), _hero_cabinets())
+    assert [r["id"] for r in rows] == [1, 2]                       # biggest revenue first
+    assert round(rows[0]["per"], 1) == 15.0 and round(rows[1]["per"], 1) == -20.0
+    assert round(rows[1]["parts"]["Логистика"], 1) == 30.0
+    assert round(rows[0]["parts"].sum() + rows[0]["per"], 6) == 100   # 100 ₽ = costs + what is left
+
+
+def test_insights_name_the_losing_and_the_earning_cabinet():
+    from dashboard.quality import Issue
+    from dashboard.views.summary_hero import cabinet_rows, insights
+    rows = cabinet_rows(_hero_facts(), _hero_cabinets())
+    issues = [Issue("Неполный месяц", blocking=False),
+              Issue("Нет себестоимости: 5 шт., 4 товаров — прибыль завышена", link="products:Нет себестоимости",
+                    button="Товары без себестоимости")]
+    out = insights(rows, issues)
+    assert [i["tone"] for i in out] == ["neg", "neg", "pos"]
+    assert "Бета" in out[0]["title"] and "20,0 ₽" in out[0]["title"]
+    assert out[1]["title"] == "Нет себестоимости: 5 шт., 4 товаров" and out[1]["text"] == "Прибыль завышена."
+    assert out[1]["link"] == "products:Нет себестоимости"
+    assert "единственный прибыльный" in out[2]["title"] and "+150 ₽" in out[2]["title"]
+    assert insights(rows[:1], []) == []                               # one cabinet, nothing open — no cards
+
+
+def test_pace_compares_the_same_number_of_days():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace, pace_svg
+    cur = pd.DataFrame({"date": [date(2026, 11, 1), date(2026, 11, 2)], "revenue": [100.0, 50.0]})
+    prev = pd.DataFrame({"date": [date(2026, 10, 30), date(2026, 10, 31), date(2026, 10, 29)],
+                         "revenue": [60.0, 500.0, 40.0]})
+    days, before, change = pace(cur, prev, date(2026, 11, 1), date(2026, 11, 3), date(2026, 10, 29), date(2026, 10, 31))
+    assert len(days) == 2                                             # the third day is not loaded yet
+    assert round(change, 2) == 0.5                                    # 150 against 40 + 60
+    svg = pace_svg(days, before, 3, "29.10–31.10")
+    assert svg.startswith("<svg") and "29.10–31.10" in svg
+    assert pace_svg(days.iloc[:1], before, 3, "x") == ""
+
+
+def test_hero_hides_roi_for_a_viewer_without_cost_prices():
+    from dashboard.views.summary_hero import hero_html
+    total = {"net": -100.0, "margin": -0.05, "roi": -0.1, "fixed": 0, "revenue": 2000.0}
+    assert "ROI" in hero_html(total, "", None, "", "")
+    html = hero_html(total, " (предварительно)", -0.05, "к прошлому месяцу", "", hide_cogs=True)
+    assert "ROI" not in html and "−100 ₽" in html and "предварительно" in html and "▼ 5 %" in html

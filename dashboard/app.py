@@ -6,6 +6,7 @@ cabinets the link allows.
 
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -15,10 +16,12 @@ from core.db import DatabaseUnavailable, init_db, is_sqlite
 from core import config
 from dashboard.common import logout, remember_login, require_access
 from dashboard.nav import PAGES
-from dashboard.theme import brand_block, inject_css, theme_toggle_sidebar
+from dashboard.theme import inject_css, theme_toggle_sidebar
 from dashboard.views import (
     access as access_view, ads, cabinets, cogs, fixed, pnl_months, products, summary, tools, uploads,
 )
+
+STATIC = Path(__file__).parent / "static"
 
 st.set_page_config(page_title="Finboard — финансы маркетплейсов", page_icon="📊", layout="wide",
                    initial_sidebar_state="expanded")
@@ -50,8 +53,8 @@ acc = require_access()
 st.session_state["access"] = acc
 remember_login()
 
+st.logo(str(STATIC / "logo.svg"), size="large", icon_image=str(STATIC / "logo_icon.svg"))
 with st.sidebar:
-    brand_block()
     if acc.owner and is_sqlite():
         st.caption("⚠️ Локальная база SQLite (DATABASE_URL не задан)")
     if not acc.owner:

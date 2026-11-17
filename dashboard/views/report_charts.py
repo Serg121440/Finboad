@@ -463,53 +463,6 @@ def _period_name(d0: date, d1: date) -> str:
     return f"{d0:%d.%m}–{d1:%d.%m}"
 
 
-def pace_chart(cur: pd.DataFrame, prev: pd.DataFrame, f, p0: date, p1: date):
-    """Revenue to date against the previous period day by day, and the result to date."""
-    c = cur.groupby("date")[["revenue", "result"]].sum()
-    days = pd.DataFrame({"date": pd.date_range(f.date_from, f.date_to).date})
-    days = days.merge(c, left_on="date", right_index=True, how="left").fillna(0)
-    days = _loaded(days, ["revenue"])
-    if len(days) < 3:
-        return
-    days["n"] = range(1, len(days) + 1)
-    days["cum"], days["cum_res"] = days["revenue"].cumsum(), days["result"].cumsum()
-    pc = prev.groupby("date")["revenue"].sum() if not prev.empty else pd.Series(dtype=float)
-    pd_ = pd.DataFrame({"date": pd.date_range(p0, p1).date})
-    pd_["cum"] = pd_["date"].map(pc).fillna(0).cumsum()
-    pd_["n"] = range(1, len(pd_) + 1)
-    pname = _period_name(p0, p1)
-    total_prev = pd_["cum"].iloc[-1] if not pd_.empty else 0
-    head = "Выручка нарастающим итогом"
-    if total_prev > 0:
-        over = days[days["cum"] >= total_prev]
-        if not over.empty:
-            head = f"Темп: выручка всего периода «{pname}» набрана уже к {over['date'].iloc[0]:%d.%m}"
-        else:
-            same = pd_.loc[pd_["n"] == days["n"].iloc[-1], "cum"]
-            if not same.empty and same.iloc[0] > 0:
-                r = days["cum"].iloc[-1] / same.iloc[0] - 1
-                head = f"Темп: за {len(days)} дн. выручка {'▲' if r >= 0 else '▼'} {_pct(abs(r) * 100, 0)} % к тем же дням ({pname})"
-    st.markdown(f"**{head}**")
-    fig = go.Figure()
-    neg = days["cum_res"].iloc[-1] < 0
-    fig.add_scatter(x=days["n"], y=days["cum_res"], name="Результат до налогов", mode="lines", fill="tozeroy",
-                    line=dict(color=DANGER if neg else SUCCESS, width=1.2),
-                    fillcolor="rgba(239,68,68,0.25)" if neg else "rgba(16,185,129,0.22)",
-                    customdata=days["date"], hovertemplate="%{customdata|%d.%m}: %{y:,.0f} ₽<extra>результат</extra>")
-    if total_prev > 0:
-        fig.add_scatter(x=pd_["n"], y=pd_["cum"], name=pname.capitalize(), mode="lines",
-                        line=dict(color="#94A3B8", width=2, dash="dash"), customdata=pd_["date"],
-                        hovertemplate="%{customdata|%d.%m}: %{y:,.0f} ₽<extra>" + pname + "</extra>")
-    fig.add_scatter(x=days["n"], y=days["cum"], name="Выручка", mode="lines", line=dict(color=ACCENT, width=3),
-                    customdata=days["date"], hovertemplate="%{customdata|%d.%m}: %{y:,.0f} ₽<extra>выручка</extra>")
-    fig.update_layout(height=320, separators=SEP, legend=dict(orientation="h", y=1.12, x=0),
-                      margin=dict(t=30, l=10, r=10, b=10), xaxis=dict(title="день периода", dtick=5),
-                      yaxis=dict(tickformat=",.0f"))
-    fig.add_hline(y=0, line_color="rgba(148,163,184,0.6)", line_width=1)
-    st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
-    st.caption("По дням — результат до налогов: налог считается за месяц по юрлицу.")
-
-
 def per100(facts: pd.DataFrame) -> pd.Series:
     """What 100 ₽ of revenue turned into: costs as positive ₽, «Хранение и прочее» closes to the result."""
     rev, profit = facts["revenue"].sum(), facts["profit"].sum()
@@ -549,54 +502,6 @@ def per100_bars(groups: dict[str, pd.DataFrame], title_by: str):
                       yaxis=dict(autorange="reversed", showgrid=False))
     st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
     st.caption(f"Пунктир — 100 ₽: всё, что правее, — убыток. Справа — результат на 100 ₽ ({title_by}).")
-
-
-def cabinets_chart(facts: pd.DataFrame, cabinets: pd.DataFrame):
-    by = facts.groupby("cabinet_id")[["revenue", "profit"]].sum().sort_values("revenue", ascending=False)
-    by = by[by["revenue"] != 0]
-    if len(by) < 2:
-        return
-    names = [_cab_name(cabinets, c) for c in by.index]
-    loss = by["profit"].clip(upper=0)
-    if loss.sum() < 0:
-        w = loss.idxmin()
-        st.markdown(f"**{_cab_name(cabinets, w)} даёт {_pct(by.loc[w, 'revenue'] / by['revenue'].sum() * 100, 0)} % "
-                    f"выручки и {_pct(loss[w] / loss.sum() * 100, 0)} % убытка**")
-    else:
-        st.markdown("**Выручка и прибыль по кабинетам**")
-    colors = cabinet_colors(cabinets)
-    fig = go.Figure()
-    fig.add_bar(y=names, x=by["revenue"], name="Выручка", orientation="h",
-                marker_color=[colors[c] for c in by.index], marker_line_width=0,
-                text=[rub(v) for v in by["revenue"]], textposition="outside", cliponaxis=False,
-                hovertemplate="%{y}: выручка %{x:,.0f} ₽<extra></extra>")
-    fig.add_bar(y=names, x=by["profit"], name="Прибыль", orientation="h",
-                marker_color=[SUCCESS if v >= 0 else DANGER for v in by["profit"]], marker_line_width=0,
-                text=[rub(v) for v in by["profit"]], textposition="outside", cliponaxis=False,
-                hovertemplate="%{y}: прибыль %{x:,.0f} ₽<extra></extra>")
-    lo = min(0, by["profit"].min())
-    fig.update_layout(barmode="group", height=70 * len(names) + 60, separators=SEP, bargap=0.25,
-                      legend=dict(orientation="h", y=1.08, x=0), margin=dict(t=30, l=10, r=10, b=10),
-                      xaxis=dict(visible=False, range=[lo * 1.6, by["revenue"].max() * 1.35]),
-                      yaxis=dict(autorange="reversed", showgrid=False))
-    st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
-
-
-def summary_overview(f, res, cur: pd.DataFrame, prev: pd.DataFrame, p0: date, p1: date):
-    from dashboard.views.products_overview import waterfall
-    with card():
-        pace_chart(cur, prev, f, p0, p1)
-    a, b = st.columns(2)
-    with card(a):
-        waterfall(res.facts)
-    with card(b):
-        if res.facts["cabinet_id"].nunique() > 1:
-            cabinets_chart(res.facts, f.cabinets)
-        else:
-            per100_bars({_cab_name(f.cabinets, res.facts["cabinet_id"].iloc[0]): res.facts}, "кабинет")
-    if res.facts["cabinet_id"].nunique() > 1:
-        with card():
-            per100_bars({_cab_name(f.cabinets, c): p for c, p in res.facts.groupby("cabinet_id")}, "по кабинетам")
 
 
 # ── ОПиУ по месяцам ──────────────────────────────────────────────────────────

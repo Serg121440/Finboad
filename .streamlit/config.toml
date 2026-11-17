@@ -33,10 +33,12 @@ textColor = "#111827"
 borderColor = "#E4E2DB"
 dataframeHeaderBackgroundColor = "#F3F2EE"
 
+# The menu is dark in both themes: it frames the page instead of blending into it.
 [theme.light.sidebar]
-backgroundColor = "#EFEDE7"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#111827"
+backgroundColor = "#111318"
+secondaryBackgroundColor = "#1C2028"
+textColor = "#E8EAF0"
+borderColor = "#2A2F3A"
 
 [theme.dark]
 primaryColor = "#6366F1"
@@ -47,6 +49,7 @@ borderColor = "#262D3D"
 dataframeHeaderBackgroundColor = "#1B2130"
 
 [theme.dark.sidebar]
-backgroundColor = "#090C12"
+backgroundColor = "#07090D"
 secondaryBackgroundColor = "#161B26"
-textColor = "#E6EAF2"
+textColor = "#E8EAF0"
+borderColor = "#262D3D"

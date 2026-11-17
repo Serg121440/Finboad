@@ -77,13 +77,18 @@ def inject_css():
     st.html(f"""
     <style>
       .stApp {{
-        --fb-card: {CARD}; --fb-line: {BORDER}; --fb-shadow: none;
+        --fb-card: {CARD}; --fb-line: {BORDER}; --fb-shadow: none; --fb-soft: {CARD}; --fb-hero: #14161C;
+        --fb-pos: {SUCCESS}; --fb-neg: {DANGER}; --fb-posbg: rgba(16,185,129,0.14); --fb-negbg: rgba(239,68,68,0.14);
         font-variant-numeric: tabular-nums;
       }}
       @supports (color: light-dark(#fff, #000)) {{
         .stApp {{
           --fb-card: light-dark(#FFFFFF, #161B26);
           --fb-line: light-dark(#E4E2DB, #262D3D);
+          --fb-soft: light-dark(#F3F2ED, #1D2330);
+          --fb-hero: light-dark(#14161C, #1A2030);
+          --fb-pos: light-dark(#0B7A5C, #3DD6A3); --fb-neg: light-dark(#C2371D, #FF8D73);
+          --fb-posbg: light-dark(#E2F3EC, #12332A); --fb-negbg: light-dark(#FBE6E0, #3A1D17);
           --fb-shadow: 0 1px 2px light-dark(rgba(17,24,39,0.05), rgba(0,0,0,0.30)),
                        0 8px 24px light-dark(rgba(17,24,39,0.06), rgba(0,0,0,0.22));
         }}
@@ -168,6 +173,101 @@ def inject_css():
       .fb-kpi-delta {{ font-size: 12px; font-weight: 500; margin-top: 6px; color: {MUTED}; }}
       .fb-kpi-delta.up {{ color: {SUCCESS}; }}
       .fb-kpi-delta.down {{ color: {DANGER}; }}
+
+
+      /* «Финансовый результат»: the result panel, 100 ₽ of revenue, indicator strip, cabinets */
+      .fb-top {{ display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 8px; }}
+      .fb-hero {{
+        flex: 2 1 520px; min-width: 0; background: var(--fb-hero); color: #F2F3F7; border-radius: 24px;
+        padding: 28px 30px 16px; box-shadow: {SHADOW}; display: flex; flex-direction: column; gap: 16px;
+      }}
+      .fb-hero svg {{ width: 100%; height: auto; display: block; font-family: inherit; }}
+      .fb-hero-top {{ display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }}
+      .fb-hero-label {{ font-size: 13px; font-weight: 500; color: #A7ADBA; }}
+      .fb-hero-value {{
+        font-size: clamp(36px, 4.2vw, 56px); line-height: 1.05; font-weight: 700; letter-spacing: -0.035em;
+        margin-top: 6px; white-space: nowrap;
+      }}
+      .fb-hero-side {{ text-align: right; }}
+      .fb-hero-rev {{ font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px; white-space: nowrap; }}
+      .fb-hero-delta {{ font-size: 13px; margin-top: 4px; }}
+      .fb-hero-delta.up {{ color: #6EE7B7; }}
+      .fb-hero-delta.down {{ color: #FFA48D; }}
+      .fb-chips {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }}
+      .fb-chip {{
+        display: inline-block; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+        background: {CARD}; white-space: nowrap;
+      }}
+      .fb-chip.pos {{ background: var(--fb-posbg); color: var(--fb-pos); }}
+      .fb-chip.neg {{ background: var(--fb-negbg); color: var(--fb-neg); }}
+      .fb-chip.info {{ background: {ACCENT_BG}; color: {ACCENT_TEXT}; }}
+      .fb-hero .fb-chip {{ background: rgba(255,255,255,0.09); color: #D5D9E2; font-weight: 500; }}
+      .fb-hero .fb-chip.neg {{ background: #3A1D17; color: #FFA48D; font-weight: 600; }}
+      .fb-hero .fb-chip.pos {{ background: #12332A; color: #6EE7B7; font-weight: 600; }}
+
+      .fb-panel {{
+        background: {SURFACE}; border: 1px solid {LINE}; border-radius: 20px; box-shadow: {SHADOW};
+        padding: 24px 26px;
+      }}
+      .fb-panel h4 {{ margin: 0; padding: 0; font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; }}
+      .fb-sub {{ margin: 4px 0 0; font-size: 13px; color: {MUTED}; }}
+      .fb-between {{ display: flex; justify-content: space-between; align-items: baseline; gap: 8px 20px; }}
+      .fb-wrap {{ flex-wrap: wrap; margin-bottom: 14px; }}
+      .fb-track {{ height: 8px; border-radius: 999px; background: var(--fb-soft); position: relative; }}
+      .fb-track > i {{ display: block; height: 100%; border-radius: 999px; background: {ACCENT}; }}
+      .fb-track.thin {{ height: 4px; margin-top: 6px; }}
+      .fb-track.thin > i {{ background: {MUTED}; }}
+
+      .fb-parts {{ flex: 1 1 300px; min-width: 0; border-radius: 24px; display: flex; flex-direction: column; gap: 16px; }}
+      .fb-part-list {{ display: flex; flex-direction: column; gap: 14px; }}
+      .fb-part-head {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: 14px; }}
+      .fb-part-head span {{ color: {MUTED}; }}
+      .fb-left {{
+        margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        border-radius: 14px; padding: 12px 16px; font-weight: 600; font-size: 14px;
+      }}
+      .fb-left b {{ font-size: 20px; letter-spacing: -0.02em; white-space: nowrap; }}
+      .fb-left.neg {{ background: var(--fb-negbg); color: var(--fb-neg); }}
+      .fb-left.pos {{ background: var(--fb-posbg); color: var(--fb-pos); }}
+
+      .fb-strip {{ padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); overflow: hidden; }}
+      .fb-cell {{ padding: 20px 24px; box-shadow: 1px 0 0 {LINE}, 0 1px 0 {LINE}; }}
+      .fb-cell-label {{ font-size: 13px; font-weight: 500; color: {MUTED}; }}
+      .fb-cell-value {{ font-size: 26px; font-weight: 700; letter-spacing: -0.025em; margin-top: 4px; white-space: nowrap; }}
+      .fb-cell-sub {{ font-size: 13px; color: {MUTED}; margin-top: 6px; }}
+      .fb-meter {{ margin-top: 14px; }}
+      .fb-meter > i.over {{ background: var(--fb-neg); }}
+      .fb-meter > u, .fb-stack > u {{ position: absolute; top: -4px; bottom: -4px; width: 2px; background: currentColor; }}
+
+      .fb-scroll {{ overflow-x: auto; }}
+      .fb-cabs {{ min-width: 820px; font-size: 14px; }}
+      .fb-cab {{
+        display: grid; grid-template-columns: 1.5fr 1.3fr 1fr 2.4fr 0.8fr; gap: 20px; align-items: center;
+        min-height: 64px; border-bottom: 1px solid {LINE};
+      }}
+      .fb-cab.head {{ min-height: 0; padding-bottom: 10px; font-size: 12px; font-weight: 500; color: {MUTED}; }}
+      .fb-cab-name {{ display: flex; align-items: center; gap: 10px; min-width: 0; font-weight: 600; }}
+      .fb-cab-name span:last-child {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+      .fb-mp {{
+        width: 30px; height: 30px; border-radius: 9px; flex: none; display: flex; align-items: center;
+        justify-content: center; font-size: 11px; font-weight: 700; color: #fff; background: #64748B;
+      }}
+      .fb-mp.ozon {{ background: {OZON_ACCENT}; }}
+      .fb-mp.wb {{ background: #7C3AED; }}
+      .fb-num {{ text-align: right; font-weight: 600; white-space: nowrap; }}
+      .fb-num.pos {{ color: var(--fb-pos); }}
+      .fb-num.neg {{ color: var(--fb-neg); }}
+      .fb-stack {{ display: flex; height: 22px; border-radius: 7px; background: var(--fb-soft); position: relative; }}
+      .fb-stack > i {{ display: block; height: 100%; box-shadow: inset -1px 0 0 {SURFACE}; }}
+      .fb-stack > i:first-child {{ border-radius: 7px 0 0 7px; }}
+      .fb-stack > u {{ top: -3px; bottom: -3px; }}
+      .fb-legend {{ display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: {MUTED}; }}
+      .fb-legend span {{ display: inline-flex; align-items: center; gap: 6px; }}
+      .fb-legend i {{ width: 10px; height: 10px; border-radius: 3px; }}
+
+      .fb-insight {{ display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }}
+      .fb-insight b {{ font-size: 15px; line-height: 1.35; font-weight: 600; }}
+      .fb-insight p {{ margin: 0; font-size: 13px; color: {MUTED}; }}
 
       /* Pills / status */
       .fb-pill {{
