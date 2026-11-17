@@ -11,6 +11,7 @@ from core.db import session
 from core.crypto import decrypt
 from core.models import Cabinet, CostOfGoods, LedgerEntry, Product
 from dashboard.common import cabinets_df, cabinet_label, data_changed, period_filters, result_for, with_names
+from dashboard.views.products import short_name
 from pnl.wb import normalize_article
 from sources.ozon_api import SellerClient
 
@@ -258,10 +259,65 @@ def card_cost_rows(have: pd.DataFrame, missing: pd.DataFrame, current: dict) -> 
         **{"Действует с": date(2000, 1, 1)})
 
 
+def queue_rows(miss: pd.DataFrame) -> pd.DataFrame:
+    """Products sold in the period without a cost price, the biggest revenue first: one row to fill
+    per (cabinet, article). miss: facts with cost_missing_qty != 0, with names (with_names)."""
+    if miss.empty:
+        return pd.DataFrame(columns=["cabinet_id", "cabinet", "article", "name", "qty", "revenue"])
+    g = miss.groupby(["cabinet_id", "cabinet", "article"], as_index=False).agg(
+        name=("name", lambda v: max(v.astype(str), key=len)), qty=("cost_missing_qty", "sum"),
+        revenue=("revenue", "sum"))
+    return g.sort_values(["revenue", "qty"], ascending=False).reset_index(drop=True)
+
+
+def _queue(view: pd.DataFrame, labels: dict, back: dict):
+    """First thing on the page: what was sold in the period without a cost price, to fill right here."""
+    st.subheader("Продались без себестоимости")
+    f = period_filters()
+    if f is None:
+        return
+    res = result_for(f)
+    miss = res.facts[res.facts["cost_missing_qty"] != 0]
+    if miss.empty:
+        st.success(f"За {f.date_from:%d.%m}–{f.date_to:%d.%m} у всех проданных товаров есть себестоимость.",
+                   icon=":material/check_circle:")
+        return
+    q = queue_rows(with_names(miss, f.cabinets, res.products))
+    st.caption(f"{len(q)} товаров, {q['qty'].sum():.0f} шт. на {q['revenue'].sum():,.0f} ₽ выручки — прибыль по ним "
+               "завышена. Введите цену и сохраните: отчёты пересчитаются. Цена «для всех кабинетов» подойдёт и "
+               "другим кабинетам с этим артикулом.".replace(",", " "))
+    fillable = q[q["article"] != ""]
+    # the price to type comes right after what identifies the product, the rest is context
+    table = pd.DataFrame({"Артикул": fillable["article"], "Себестоимость, ₽/шт": float("nan"), "Для": ALL,
+                          "Товар": fillable["name"].map(short_name), "Штук": fillable["qty"],
+                          "Выручка, ₽": fillable["revenue"].round(0),
+                          "Кабинет": fillable["cabinet_id"].map(lambda c: back.get(int(c), ALL))})
+    edited = st.data_editor(
+        table, hide_index=True, use_container_width=True, key=f"cogs_queue_{f.date_from}_{f.date_to}",
+        disabled=["Артикул", "Товар", "Кабинет", "Штук", "Выручка, ₽"],
+        column_config={
+            "Для": st.column_config.SelectboxColumn(options=[ALL, "Этот кабинет"], required=True,
+                                                     help="Для всех кабинетов или только для этого"),
+            "Себестоимость, ₽/шт": st.column_config.NumberColumn(min_value=0, format="%.2f", width="medium"),
+            "Товар": st.column_config.TextColumn(width="large"),
+            "Выручка, ₽": st.column_config.NumberColumn(format="localized"),
+        })
+    add = edited[edited["Себестоимость, ₽/шт"].notna()]
+    if st.button(f"Сохранить {len(add)} цен" if len(add) else "Сохранить", type="primary",
+                 disabled=add.empty, key="cogs_queue_save"):
+        rows = pd.DataFrame({"Артикул": add["Артикул"],
+                             "Кабинет": [ALL if w == ALL else c for w, c in zip(add["Для"], add["Кабинет"])],
+                             "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": add["Себестоимость, ₽/шт"]})
+        _save(pd.concat([view, rows]), labels)
+        st.session_state["cogs_msg"] = f"Сохранено цен: {len(rows)}. Они действуют для всех продаж этих артикулов."
+        st.rerun()
+    if (q["article"] == "").any():
+        st.caption(f"Без артикула: {(q['article'] == '').sum()} — товара ещё нет в каталоге кабинета; он появится "
+                   "после загрузки товаров.")
+
+
 def render():
     st.title("Себестоимость")
-    st.caption("Цена закупки за штуку. «Действует с» — с какой даты продажи применять цену; для старых "
-               "продаж остаётся прежняя. Цена для конкретного кабинета важнее цены для всех кабинетов.")
     cabs = cabinets_df()
     labels = {ALL: None} | {cabinet_label(r): int(r["id"]) for _, r in cabs.iterrows()}
     back = {v: k for k, v in labels.items()}
@@ -270,6 +326,13 @@ def render():
     view = pd.DataFrame({
         "Артикул": df["article"], "Кабинет": df["cabinet_id"].map(lambda v: back.get(None if pd.isna(v) else int(v), ALL)),
         "Действует с": pd.to_datetime(df["valid_from"]).dt.date, "Себестоимость, ₽/шт": df["cost"]})
+    if st.session_state.get("cogs_msg"):
+        st.success(st.session_state.pop("cogs_msg"))
+    _queue(view, labels, back)
+
+    st.subheader("Справочник")
+    st.caption("Цена закупки за штуку. «Действует с» — с какой даты продажи применять цену; для старых "
+               "продаж остаётся прежняя. Цена для конкретного кабинета важнее цены для всех кабинетов.")
     edited = st.data_editor(
         view, num_rows="dynamic", use_container_width=True, hide_index=True, height=420, key="cogs_editor",
         column_config={
@@ -296,9 +359,6 @@ def render():
                 n = _save(pd.concat([view, add]), labels)
                 st.session_state["cogs_msg"] = f"Из файла взято строк: {len(add)}. Всего в таблице: {n}"
                 st.rerun()
-    if st.session_state.get("cogs_msg"):
-        st.success(st.session_state.pop("cogs_msg"))
-
     current = _current_costs(df)
     prods = _products()
     cat = _catalog(prods, current)
@@ -313,21 +373,3 @@ def render():
                            file_name=f"себестоимость_шаблон_{date.today():%Y%m%d}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     _card_block(prods, current, view, labels)
-
-    st.subheader("Продавались без себестоимости")
-    f = period_filters()
-    if f is None:
-        return
-    res = result_for(f)
-    miss = res.facts[res.facts["cost_missing_qty"] != 0]
-    if miss.empty:
-        st.success("За выбранный период у всех проданных товаров есть себестоимость.")
-        return
-    g = miss.groupby(["cabinet_id", "sku"], as_index=False)[["cost_missing_qty", "revenue"]].sum()
-    g = with_names(g, f.cabinets, res.products)
-    st.dataframe(pd.DataFrame({"Кабинет": g["cabinet"], "Артикул": g["article"], "Товар": g["name"],
-                               "Штук без себестоимости": g["cost_missing_qty"], "Выручка, ₽": g["revenue"]})
-                 .sort_values("Выручка, ₽", ascending=False),
-                 use_container_width=True, hide_index=True)
-    if (g["article"] == "").any():
-        st.caption("Пустой артикул — товара ещё нет в каталоге кабинета; он появится после загрузки товаров.")
