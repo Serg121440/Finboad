@@ -2,7 +2,7 @@
 revenue turns into, the indicator strip, what needs attention and the cabinets side by side.
 Builders return HTML (tested without Streamlit); render() puts them on the page."""
 
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 
 import pandas as pd
@@ -266,8 +266,9 @@ def render(f, res, total: dict, final: str, issues: list, limit: float,
     pname = _period_name(p0, p1)
     svg = pace_svg(days, before, (f.date_to - f.date_from).days + 1, pname)
     whole = len(days) == (f.date_to - f.date_from).days + 1
-    n = (p1 - p0).days + 1
-    compare = label if whole else f"к предыдущим {n} дн. ({pname})"
+    # a period in progress is compared with as many days of the previous one: name those days
+    m = min(len(days), (p1 - p0).days + 1)
+    compare = label if whole else f"к {p0:%d.%m}–{p0 + timedelta(days=max(m, 1) - 1):%d.%m} ({m} дн.)"
     hero = hero_html(total, final, change, compare, svg, hide_cogs)
     facts = res.facts
     if facts["revenue"].sum() > 0:
