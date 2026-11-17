@@ -258,7 +258,7 @@ def inject_css():
       .fb-num.pos {{ color: var(--fb-pos); }}
       .fb-num.neg {{ color: var(--fb-neg); }}
       .fb-stack {{ display: flex; height: 22px; border-radius: 7px; background: var(--fb-soft); position: relative; }}
-      .fb-stack > i {{ display: block; height: 100%; box-shadow: inset -1px 0 0 {SURFACE}; }}
+      .fb-stack > i {{ display: block; flex: none; height: 100%; box-shadow: inset -1px 0 0 {SURFACE}; }}
       .fb-stack > i:first-child {{ border-radius: 7px 0 0 7px; }}
       .fb-stack > u {{ top: -3px; bottom: -3px; }}
       .fb-legend {{ display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: {MUTED}; }}

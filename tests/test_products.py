@@ -428,3 +428,13 @@ def test_hero_hides_roi_for_a_viewer_without_cost_prices():
     assert "ROI" in hero_html(total, "", None, "", "")
     html = hero_html(total, " (предварительно)", -0.05, "к прошлому месяцу", "", hide_cogs=True)
     assert "ROI" not in html and "−100 ₽" in html and "предварительно" in html and "▼ 5 %" in html
+
+
+def test_cabinet_bars_share_one_scale_with_the_100_mark():
+    from dashboard.views.summary_hero import CAB_SCALE, cabinet_rows, cabinet_scale, cabinets_html
+    f = _hero_facts()
+    assert cabinet_scale(cabinet_rows(f, _hero_cabinets())) == CAB_SCALE
+    f.loc[1, ["logistics", "profit"]] = [-650.0, -600.0]              # costs of 220 ₽ per 100 ₽
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert round(cabinet_scale(rows)) == 220
+    assert 'left:45.45%' in cabinets_html(rows)                       # the mark moves with the scale

@@ -13,7 +13,7 @@ from dashboard.theme import card
 from dashboard.views.report_charts import PER100, PER100_COLORS, _cab_name, _loaded, _pct, _period_name, per100
 
 W, H, PAD_T, PAD_B = 760, 250, 30, 40          # the pace chart's viewBox
-CAB_SCALE = 115                                # ₽ per 100 ₽ of revenue the cabinet bar is wide
+CAB_SCALE = 115                                # ₽ per 100 ₽ of revenue the cabinet bar is wide, at least
 
 
 def _money(v: float, sign: bool = False) -> str:
@@ -175,14 +175,20 @@ def cabinet_rows(facts: pd.DataFrame, cabinets: pd.DataFrame) -> list[dict]:
     return sorted(rows, key=lambda r: -r["revenue"])
 
 
+def cabinet_scale(rows: list[dict]) -> float:
+    """One scale for every cabinet's bar and the 100 ₽ mark: wide enough for the costliest cabinet."""
+    return max(CAB_SCALE, *(r["parts"].clip(lower=0).sum() for r in rows))
+
+
 def cabinets_html(rows: list[dict]) -> str:
     color = dict(zip(PER100, PER100_COLORS))
     top = max(r["revenue"] for r in rows)
+    scale = cabinet_scale(rows)
     legend = "".join(f'<span><i style="background:{c}"></i>{escape(k)}</span>' for k, c in color.items())
     body = ""
     for r in rows:
         tone = "pos" if r["profit"] >= 0 else "neg"
-        seg = "".join(f'<i style="width:{max(v, 0) / CAB_SCALE * 100:.2f}%;background:{color[k]}" '
+        seg = "".join(f'<i style="width:{max(v, 0) / scale * 100:.2f}%;background:{color[k]}" '
                       f'title="{escape(k)}: {_pct(v)} ₽ из 100"></i>' for k, v in r["parts"].items())
         tag = {"ozon": "OZ", "wb": "WB"}.get(r["mp"], "")
         body += (
@@ -190,7 +196,7 @@ def cabinets_html(rows: list[dict]) -> str:
             f'<span>{escape(r["name"].split(" · ", 1)[-1])}</span></div>'
             f'<div><b>{rub(r["revenue"])}</b><div class="fb-track thin"><i style="width:{r["revenue"] / top * 100:.1f}%">'
             f'</i></div></div><div class="fb-num {tone}">{_money(r["profit"], sign=True)}</div>'
-            f'<div class="fb-stack">{seg}<u style="left:{100 / CAB_SCALE * 100:.2f}%"></u></div>'
+            f'<div class="fb-stack">{seg}<u style="left:{100 / scale * 100:.2f}%"></u></div>'
             f'<div class="fb-num"><span class="fb-chip {tone}">{_per(r["per"])}</span></div></div>')
     return ('<div class="fb-panel"><div class="fb-between fb-wrap"><h4>Кабинеты</h4>'
             f'<div class="fb-legend">{legend}</div></div><div class="fb-scroll"><div class="fb-cabs">'
