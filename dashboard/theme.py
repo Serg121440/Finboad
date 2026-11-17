@@ -177,6 +177,7 @@ def inject_css():
         line-height: 1.1; white-space: nowrap;
       }}
       .fb-kpi-delta {{ font-size: 12px; font-weight: 500; margin-top: 6px; color: {MUTED}; }}
+      .fb-kpi-note {{ font-size: 12px; color: {MUTED}; margin-top: 2px; }}
       .fb-kpi-delta.up {{ color: {SUCCESS}; }}
       .fb-kpi-delta.down {{ color: {DANGER}; }}
 
@@ -270,6 +271,13 @@ def inject_css():
       .fb-legend {{ display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: {MUTED}; }}
       .fb-legend span {{ display: inline-flex; align-items: center; gap: 6px; }}
       .fb-legend i {{ width: 10px; height: 10px; border-radius: 3px; }}
+
+      .fb-signal {{ padding: 2px 0 0; }}
+      .fb-signal b {{ display: block; font-size: 14px; line-height: 1.35; font-weight: 600; }}
+      .fb-signal span {{ display: block; font-size: 13px; color: {MUTED}; margin-top: 2px; }}
+      .fb-common {{ font-size: 14px; padding: 14px 18px; border-radius: 14px; }}
+      .fb-common b {{ font-weight: 600; }}
+      .fb-common span {{ color: {MUTED}; }}
 
       .fb-insight {{ display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }}
       .fb-insight b {{ font-size: 15px; line-height: 1.35; font-weight: 600; }}
@@ -400,9 +408,10 @@ def sparkline(values, color=WB_ACCENT, height: int = 40):
 
 
 def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted",
-             trend: list | None = None, accent: str = WB_ACCENT, arrow: str | None = None):
+             trend: list | None = None, accent: str = WB_ACCENT, arrow: str | None = None, note: str = ""):
     """KPI card with optional sparkline trend. delta_color: 'up' (green), 'down' (red), 'muted'.
-    arrow: '▲ ' / '▼ ' when the direction differs from the colour (ДРР going down is good)."""
+    arrow: '▲ ' / '▼ ' when the direction differs from the colour (ДРР going down is good).
+    note: what the number is made of (the denominator of a ratio), small under the change."""
     if arrow is None:
         arrow = {"up": "▲ ", "down": "▼ "}.get(delta_color, "") if delta else ""
     spark = ""
@@ -422,6 +431,7 @@ def kpi_card(label: str, value: str, delta: str = "", delta_color: str = "muted"
       <div class="fb-kpi-label" title="{escape(label)}">{label}</div>
       <div class="fb-kpi-value">{value}</div>
       <div class="fb-kpi-delta {delta_color}" title="{escape(delta)}">{arrow}{delta}&nbsp;</div>
+      {f'<div class="fb-kpi-note">{escape(note)}</div>' if note else ""}
       {spark}
     </div>
     """, unsafe_allow_html=True)

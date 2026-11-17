@@ -439,3 +439,84 @@ def test_cabinet_bars_share_one_scale_with_the_100_mark():
     rows = cabinet_rows(f, _hero_cabinets())
     assert round(cabinet_scale(rows)) == 220
     assert 'left:45.45%' in cabinets_html(rows)                       # the mark moves with the scale
+
+
+def test_pace_compares_a_whole_month_with_the_whole_previous_one():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace
+    cur = pd.DataFrame({"date": pd.date_range("2026-09-01", "2026-09-30").date, "revenue": 1000 / 30})
+    prev = pd.DataFrame({"date": pd.date_range("2026-08-01", "2026-08-31").date, "revenue": 0.0})
+    prev.loc[[0, 30], "revenue"] = 1000.0                             # half of August is its last day
+    _, _, change = pace(cur, prev, date(2026, 9, 1), date(2026, 9, 30), date(2026, 8, 1), date(2026, 8, 31))
+    assert round(change, 2) == -0.5
+
+
+# ── Реклама ──────────────────────────────────────────────────────────────────
+
+def _ads_named():
+    import pandas as pd
+    return pd.DataFrame({
+        "cabinet_id": [1, 1, 1, 1], "sku": ["", "a", "b", "c"], "name": ["", "Альфа", "Бета", "Гамма"],
+        "article": ["", "A", "B", "C"], "marketplace": ["ozon"] * 4, "cabinet": ["Перфетто"] * 4,
+        "ads": [-500.0, -100.0, -300.0, -50.0], "revenue": [0.0, 2000.0, 1000.0, 0.0], "profit": [0.0, 300.0, -200.0, -50.0]})
+
+
+def _ads_daily():
+    import pandas as pd
+    return pd.DataFrame({"cabinet_id": [1, 1, 1], "sku": ["a", "b", "c"], "ordered_sum": [2500.0, 1500.0, 0.0],
+                         "views": [10000, 10000, 200], "clicks": [400, 100, 2], "ads": [100.0, 300.0, 50.0]})
+
+
+def test_ads_product_rows_and_selections():
+    from dashboard.views.ads import picks, product_rows
+    g = product_rows(_ads_named(), _ads_daily())
+    assert list(g["sku"]) == ["b", "a", "c"]                          # common ad money is not a product
+    assert round(g.loc[0, "drr_orders"], 1) == 20.0 and round(g.loc[0, "drr"], 1) == 30.0
+    m = picks(g, 10.0)
+    assert list(g.loc[m["Выше цели"], "sku"]) == ["b"]
+    assert list(g.loc[m["Расход без заказов"], "sku"]) == ["c"]
+    assert list(g.loc[m["Плохой CTR и дорого"], "sku"]) == ["b"]       # CTR 1 % against the average 2,5 %
+
+
+def test_ads_signals_name_the_selection_and_its_money():
+    from dashboard.quality import Issue
+    from dashboard.views.ads import product_rows, signals
+    g = product_rows(_ads_named(), _ads_daily())
+    out = signals(g, 10.0, [Issue("Ozon · Перфетто: не загружено дней в периоде — 3", "кнопка «Обновить данные» выше"),
+                            Issue("Неполный месяц", blocking=False)])
+    assert [s["pick"] for s in out] == ["Выше цели", "Расход без заказов", "Плохой CTR и дорого", ""]
+    assert out[0]["title"] == "Выше цели: 1 товар" and "300 ₽" in out[0]["text"]
+    assert out[-1]["title"] == "Ozon · Перфетто: не загружено дней в периоде"
+
+
+def test_short_name_keeps_whole_words():
+    from dashboard.views.ads import short_name
+    assert short_name("Гантели  разборные 20 кг") == "Гантели разборные 20 кг"
+    s = short_name("Батут детский с защитной сеткой и лестницей, диаметр 183 см, синий", 30)
+    assert s.endswith("…") and len(s) <= 31 and not s[:-1].endswith(" ")
+
+
+def test_coverage_by_source_counts_wb_by_its_report():
+    from datetime import date
+    from dashboard.common import coverage
+    runs = {"Начисления": {1: [(date(2026, 11, 16), date(2026, 11, 16))]},
+            "Заказы": {1: [(date(2026, 11, 1), date(2026, 11, 15))], 2: [(date(2026, 11, 1), date(2026, 11, 15))]},
+            "Реклама": {1: [(date(2026, 11, 1), date(2026, 11, 12))], 2: [(date(2026, 11, 1), date(2026, 11, 15))]}}
+    cov = coverage(date(2026, 11, 1), date(2026, 11, 15), runs, [(1, "Ozon · A", "ozon"), (2, "WB · B", "wb")],
+                   {2: date(2026, 11, 9)})
+    assert cov[0]["Начисления"] == 15 and cov[0]["Заказы"] == 0 and cov[0]["Реклама"] == 3
+    assert cov[1]["Начисления"] == 6                                  # report up to 09.11
+
+
+def test_ad_page_issues_leave_out_profit_only_ones():
+    from datetime import date
+    import pandas as pd
+    from dashboard.quality import find_issues
+    facts = pd.DataFrame({"cost_missing_qty": [3], "sku": ["a"]})
+    cabs = pd.DataFrame({"name": ["A"], "entity_id": [None]})
+    out = find_issues(facts, pd.DataFrame(), cabs, date(2026, 11, 1), date(2026, 11, 15), set(), {"A": 2}, {"A": 1})
+    assert {i.scope for i in out if "себестоимости" in i.text or "Налог" in i.text or "Постоянные" in i.text} \
+        == {"profit"}
+    assert {i.scope for i in out if "не загружено" in i.text} == {"data"}
+    assert {i.scope for i in out if "реклама не загружена" in i.text} == {"ads"}

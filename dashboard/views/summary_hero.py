@@ -28,7 +28,8 @@ def _per(v: float) -> str:
 
 def pace(cur: pd.DataFrame, prev: pd.DataFrame, d0: date, d1: date, p0: date, p1: date):
     """Revenue to date by day of the period: (days of this period, days of the previous one, change
-    against the same number of days or None). Days after the last loaded one are left out."""
+    or None). A period loaded to its last day is compared with the whole previous one, a period in
+    progress — with the same number of days. Days after the last loaded one are left out."""
     days = pd.DataFrame({"date": pd.date_range(d0, d1).date})
     c = cur.groupby("date")["revenue"].sum() if not cur.empty else pd.Series(dtype=float)
     days["revenue"] = days["date"].map(c).fillna(0.0)
@@ -39,8 +40,8 @@ def pace(cur: pd.DataFrame, prev: pd.DataFrame, d0: date, d1: date, p0: date, p1
     before["cum"] = before["date"].map(pc).fillna(0.0).cumsum()
     change = None
     if len(days) and len(before):
-        # a whole month against a shorter one: the whole of the shorter one
-        same = before["cum"].iloc[min(len(days), len(before)) - 1]
+        whole = len(days) == (d1 - d0).days + 1
+        same = before["cum"].iloc[-1 if whole else min(len(days), len(before)) - 1]
         if same > 0:
             change = days["cum"].iloc[-1] / same - 1
     if before.empty or before["cum"].iloc[-1] <= 0:
@@ -265,7 +266,8 @@ def render(f, res, total: dict, final: str, issues: list, limit: float,
     pname = _period_name(p0, p1)
     svg = pace_svg(days, before, (f.date_to - f.date_from).days + 1, pname)
     whole = len(days) == (f.date_to - f.date_from).days + 1
-    compare = label if whole else f"к тем же дням ({pname})"
+    n = (p1 - p0).days + 1
+    compare = label if whole else f"к предыдущим {n} дн. ({pname})"
     hero = hero_html(total, final, change, compare, svg, hide_cogs)
     facts = res.facts
     if facts["revenue"].sum() > 0:

@@ -65,12 +65,15 @@ def _cab_name(cabinets: pd.DataFrame, cid) -> str:
 
 # ── Реклама ──────────────────────────────────────────────────────────────────
 
+# one name per ratio everywhere on the page: cards, charts, the table, signals
+DRR_NAMES = {"drr": "ДРР к выручке", "drr_orders": "ДРР к заказам без отмен"}
+
 def _ads_totals(facts: pd.DataFrame, orders: pd.DataFrame) -> dict:
     ads, rev = -facts["ads"].sum(), facts["revenue"].sum()
     ordered = orders["ordered_sum"].sum() - orders.get("cancelled_sum", pd.Series(dtype=float)).sum() \
         if not orders.empty else 0.0
     common = -facts.loc[facts["sku"] == NO_SKU, "ads"].sum()
-    return {"ads": ads, "drr": ads / rev if rev > 0 else np.nan,
+    return {"ads": ads, "revenue": rev, "ordered": ordered, "drr": ads / rev if rev > 0 else np.nan,
             "drr_orders": ads / ordered if ordered > 0 else np.nan, "common": common / ads if ads > 0 else np.nan}
 
 
@@ -92,51 +95,62 @@ def _clicks(daily: pd.DataFrame | None) -> tuple[float, float]:
     return c / v, m / c if c > 0 else np.nan
 
 
-def ads_kpis(res, prev, label: str, daily: pd.DataFrame, prev_daily: pd.DataFrame | None = None):
+def _short_rub(v: float) -> str:
+    if abs(v) >= 1e6:
+        return f"{_pct(v / 1e6, 2)} млн ₽"
+    return rub(v)
+
+
+def ads_kpis(res, prev, label: str, daily: pd.DataFrame):
+    """The three numbers the page is about; each ДРР names what the spend is divided by."""
     t = _ads_totals(res.facts, res.orders)
     s = _daily_series(daily)
     spend, drr = s["ads"].tolist(), s["drr"].dropna().tolist()
     p = _ads_totals(prev.facts, prev.orders) if prev is not None and not prev.facts.empty else None
-    ctr, cpc = _clicks(daily)
-    pctr, pcpc = _clicks(prev_daily)
-    has_ctr = pd.notna(ctr)
-    c = st.columns(5 if has_ctr else 4)
+    c = st.columns(3)
     with c[0]:
         d = t["ads"] / p["ads"] - 1 if p and p["ads"] > 0 else None
         # spending more is neither good nor bad by itself: the arrow without a colour
         kpi_card("Расход на рекламу", rub(t["ads"]), f"{_pct(abs(d) * 100)} % {label}" if d is not None else "",
-                 "muted", arrow=("▲ " if d > 0 else "▼ ") if d else None, trend=spend, accent=ADS_COLOR)
-    for col, key, title in ((c[1], "drr", "ДРР к выручке"), (c[2], "drr_orders", "ДРР к заказам без отмен")):
+                 "muted", arrow=("▲ " if d > 0 else "▼ ") if d else None, trend=spend, accent=ADS_COLOR,
+                 note="по начислениям и кабинетам продвижения")
+    notes = {"drr": f"расход ÷ выручка {_short_rub(t['revenue'])} (выкупы)",
+             "drr_orders": f"расход ÷ заказы {_short_rub(t['ordered'])} (без отмен)"}
+    for col, key in ((c[1], "drr"), (c[2], "drr_orders")):
         with col:
             d = t[key] - p[key] if p and pd.notna(p[key]) and pd.notna(t[key]) else None
-            kpi_card(title, f"{_pct(t[key] * 100)} %" if pd.notna(t[key]) else "—",
+            kpi_card(DRR_NAMES[key], f"{_pct(t[key] * 100)} %" if pd.notna(t[key]) else "—",
                      f"{_pp(d)} {label}" if d is not None else "",
                      "up" if d is not None and d < 0 else "down" if d else "muted",
                      arrow=("▼ " if d < 0 else "▲ ") if d else None,
                      trend=drr if key == "drr_orders" else [],
-                     accent=SUCCESS if d is not None and d < 0 else DANGER)
-    if not has_ctr:
-        with c[3]:
-            kpi_card("Не делится по товарам", f"{_pct(t['common'] * 100, 0)} %" if pd.notna(t["common"]) else "—",
-                     "«оплата за заказ — все товары» и т. п.", "muted", trend=[])
-        return
-    with c[3]:
+                     accent=SUCCESS if d is not None and d < 0 else DANGER, note=notes[key])
+
+
+def traffic_html(res, daily: pd.DataFrame, prev_daily: pd.DataFrame | None, label: str) -> str:
+    """Second row: impressions, clicks, CTR, the cost of a click and the ad money not tied to a product."""
+    t = _ads_totals(res.facts, res.orders)
+    ctr, cpc = _clicks(daily)
+    pctr, pcpc = _clicks(prev_daily)
+    cells = []
+    if pd.notna(ctr):
         d = ctr - pctr if pd.notna(pctr) else None
-        kpi_card("CTR", f"{_pct(ctr * 100, 2)} %", f"{_pp(d)} {label}" if d is not None else "клики / показы",
-                 "up" if d is not None and d > 0 else "down" if d else "muted",
-                 trend=s["ctr"].dropna().tolist(), accent=SUCCESS if d is None or d >= 0 else DANGER)
-    with c[4]:
+        cells.append(("CTR", f"{_pct(ctr * 100, 2)} %",
+                      f"{'▲' if d > 0 else '▼'} {_pp(d)} {label}" if d else "клики ÷ показы"))
         d = cpc - pcpc if pd.notna(cpc) and pd.notna(pcpc) else None
-        # a dearer click is the bad direction
-        kpi_card("Цена клика", f"{_pct(cpc, 1)} ₽" if pd.notna(cpc) else "—",
-                 f"{_pct(abs(d), 1)} ₽ {label}" if d is not None else "расход с кликами / клики",
-                 "down" if d is not None and d > 0 else "up" if d else "muted",
-                 arrow=("▲ " if d > 0 else "▼ ") if d else None,
-                 trend=s["cpc"].dropna().tolist(), accent=DANGER if d is not None and d > 0 else SUCCESS)
+        cells.append(("Цена клика", f"{_pct(cpc, 1)} ₽" if pd.notna(cpc) else "—",
+                      f"{'▲' if d > 0 else '▼'} {_pct(abs(d), 1)} ₽ {label}" if d else "расход с кликами ÷ клики"))
+        cells.append(("Показы", _int(daily["views"].sum()), f"клики {_int(daily['clicks'].sum())}"))
+    common = t["common"] * t["ads"] if pd.notna(t["common"]) else 0.0
+    cells.append(("Общая реклама", rub(common),
+                  f"{_pct(t['common'] * 100)} % бюджета, по товарам не делится" if pd.notna(t["common"]) else "\u00a0"))
+    body = "".join(f'<div class="fb-cell"><div class="fb-cell-label">{a}</div><div class="fb-cell-value">{b}</div>'
+                   f'<div class="fb-cell-sub">{c}</div></div>' for a, b, c in cells)
+    return f'<div class="fb-panel fb-strip">{body}</div>'
 
 
 def ads_daily_chart(daily: pd.DataFrame, cabinets: pd.DataFrame, limit: float):
-    """Ad money by day, stacked by marketplace, and ДРР к заказам on the right axis."""
+    """Ad money by day, stacked by marketplace, and ДРР к заказам без отмен on the right axis."""
     if daily.empty or daily["ads"].sum() == 0:
         return
     mp = dict(zip(cabinets["id"], cabinets["marketplace"]))
@@ -152,23 +166,24 @@ def ads_daily_chart(daily: pd.DataFrame, cabinets: pd.DataFrame, limit: float):
     days["total"] = days[mps].sum(axis=1)
     days["drr"] = np.where(days["ordered"] > 0, days["total"] / days["ordered"] * 100, np.nan)
     half = len(days) // 2
-    head = "Реклама по дням"
+    name = DRR_NAMES["drr_orders"]
+    head = "Расход на рекламу по дням"
     if days["drr"].notna().any():
         over = int((days["drr"] > limit).sum())
-        head = f"Реклама по дням — ДРР выше цели {over} дн. из {len(days)}" if over else head
+        head = f"{name} выше цели {over} дн. из {len(days)}" if over else head
     if half >= 7:
         a, b = days["total"].iloc[:half].mean(), days["total"].iloc[half:].mean()
         if a > 0 and b > 0 and max(a, b) / min(a, b) >= 1.3:
-            head += (f" — во второй половине периода в {_pct(a / b)} раза дешевле" if b < a else
-                     f" — во второй половине периода в {_pct(b / a)} раза дороже")
+            head += (f" · расход в день во второй половине периода в {_pct(a / b)} раза меньше" if b < a else
+                     f" · расход в день во второй половине периода в {_pct(b / a)} раза больше")
     st.markdown(f"**{head}**")
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     for m in mps:
         fig.add_bar(x=days["date"], y=days[m], name=MP_NAMES[m], marker_color=MP_COLORS[m], marker_line_width=0,
                     hovertemplate="%{x|%d.%m}: %{y:,.0f} ₽<extra>" + MP_NAMES[m] + "</extra>")
-    fig.add_scatter(x=days["date"], y=days["drr"], name="ДРР к заказам, %", mode="lines",
+    fig.add_scatter(x=days["date"], y=days["drr"], name=f"{name}, %", mode="lines",
                     line=dict(color=ADS_COLOR, width=2.5, shape="spline", smoothing=0.4),
-                    hovertemplate="%{x|%d.%m}: %{y:.1f} %<extra>ДРР к заказам</extra>", secondary_y=True)
+                    hovertemplate="%{x|%d.%m}: %{y:.1f} %<extra>" + name + "</extra>", secondary_y=True)
     fig.update_layout(barmode="stack", bargap=0.25, height=320, separators=SEP,
                       legend=dict(orientation="h", y=1.12, x=0), margin=dict(t=30, l=10, r=10, b=10))
     fig.update_xaxes(tickformat="%d.%m")
@@ -267,7 +282,7 @@ def _heat_grid(title: str, sub: str, legend: list[tuple[str, str]], days: list, 
 
 
 def drr_heatmap(daily: pd.DataFrame, names: pd.DataFrame, limit: float):
-    """Products with the most ad money × day; colour — ДРР к заказам over the last WINDOW days, in steps
+    """Products with the most ad money × day; colour — ДРР к заказам без отмен over the last WINDOW days, in steps
     around the limit."""
     top = _top_skus(daily)
     if top.empty:
@@ -299,7 +314,7 @@ def drr_heatmap(daily: pd.DataFrame, names: pd.DataFrame, limit: float):
                      "total": f"{_pct(drr)} %" if drr is not None else "нет заказов",
                      "bad": drr is None or drr > limit})
     n_high = sum(r["bad"] for r in rows)
-    _heat_grid(f"Тепловая карта ДРР: {n_high} из {len(rows)} самых рекламируемых товаров выше {_pct(limit, 0)} %",
+    _heat_grid(f"{DRR_NAMES['drr_orders']}: {n_high} из {len(rows)} самых рекламируемых товаров выше {_pct(limit, 0)} %",
                f"Товар × день. Цвет — реклама к заказам за {WINDOW} дней по этот день: чем ярче, тем дороже. "
                "Наведите на клетку — расход, заказы, ДРР. Пусто — рекламы не было.",
                [(c, lab) for _, c, lab in bins] + [(NO_ORDERS, "расход без заказов")], days, rows)
@@ -351,19 +366,23 @@ def ctr_heatmap(daily: pd.DataFrame, names: pd.DataFrame):
 
 
 def ctr_vs_drr(daily: pd.DataFrame, names: pd.DataFrame, limit: float) -> bool:
-    """Products by CTR and ДРР к заказам for the period; False when there are no impressions to draw."""
+    """Products by CTR and ДРР к заказам без отмен for the period; False when there are no impressions
+    to draw. Products with ad money and no orders have no ДРР: they are a selection of the table."""
     d = daily[daily["sku"] != NO_SKU].groupby(["cabinet_id", "sku"])[["ads", "ordered_sum", "views", "clicks"]].sum()
     d = d[(d["views"] >= MIN_VIEWS * 7) & (d["ads"] > 0)]
+    silent = int((d["ordered_sum"] <= 0).sum())
+    d = d[d["ordered_sum"] > 0]
     if len(d) < 3:
         return False
     d["ctr"] = d["clicks"] / d["views"] * 100
-    d["drr"] = np.where(d["ordered_sum"] > 0, d["ads"] / d["ordered_sum"] * 100, 60.0).clip(max=60)
+    d["drr"] = (d["ads"] / d["ordered_sum"] * 100).clip(upper=60)
     avg = d["clicks"].sum() / d["views"].sum() * 100
     bad = (d["ctr"] < avg) & (d["drr"] > limit)
     n = int(bad.sum())
     word = "товар" if n % 10 == 1 and n % 100 != 11 else \
         "товара" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "товаров"
-    st.markdown(f"**CTR против ДРР: {n} {word} кликают хуже среднего и рекламируются дороже {_pct(limit, 0)} %**")
+    st.markdown(f"**CTR и {DRR_NAMES['drr_orders']}: {n} {word} кликают хуже среднего и рекламируются дороже "
+                f"{_pct(limit, 0)} %**")
     labels = [_label(names, c, s)[0][:60] for c, s in d.index]
     size = np.sqrt(d["ads"]) / max(1, np.sqrt(d["ads"].max())) * 34 + 6
     fig = go.Figure(go.Scatter(
@@ -378,10 +397,11 @@ def ctr_vs_drr(daily: pd.DataFrame, names: pd.DataFrame, limit: float) -> bool:
     fig.add_hline(y=limit, line_color=ADS_COLOR, line_dash="dash", line_width=1)
     fig.update_layout(height=340, separators=SEP, margin=dict(t=10, l=10, r=10, b=10),
                       xaxis=dict(title="CTR, %", range=[0, xmax], ticksuffix=" %"),
-                      yaxis=dict(title="ДРР к заказам, %", range=[0, 62], ticksuffix=" %"))
+                      yaxis=dict(title=f"{DRR_NAMES['drr_orders']}, %", range=[0, 62], ticksuffix=" %"))
     st.plotly_chart(apply_plotly_theme(fig), use_container_width=True, config=PLOT)
     st.caption(f"Размер точки — расход. Пунктир по CTR — средний {_pct(avg)} %. Левый верхний угол — "
-               "не кликают и дорого. ДРР обрезан на 60 % (там же товары без заказов).")
+               "не кликают и дорого. ДРР обрезан на 60 %."
+               + (f" Товаров с расходом и без заказов — {silent}: они в выборке «Расход без заказов»." if silent else ""))
     return True
 
 
@@ -434,25 +454,6 @@ def ads_donut(facts: pd.DataFrame, cabinets: pd.DataFrame):
     _donut([_cab_name(cabinets, c) for c in by.index], by.values, [colors[c] for c in by.index],
            f"{_pct(total / 1e6, 2)} млн" if total >= 1e6 else f"{total / 1e3:.0f} тыс.", "реклама",
            "%{label}: %{value:,.0f} ₽")
-
-
-def ads_overview(res, prev, label: str, daily: pd.DataFrame, prev_daily: pd.DataFrame, g: pd.DataFrame,
-                 cabinets: pd.DataFrame, limit: float):
-    ads_kpis(res, prev, label, daily, prev_daily)
-    with card():
-        ads_daily_chart(daily, cabinets, limit)
-    names = g[["cabinet_id", "sku", "name", "article", "marketplace"]]
-    with card():
-        drr_heatmap(daily, names, limit)
-    if daily["views"].sum() > 0:
-        with card():
-            ctr_heatmap(daily, names)
-    a, b = st.columns([3, 2])
-    with card(a):
-        if not ctr_vs_drr(daily, names, limit):
-            ads_product_map(g, limit)
-    with card(b):
-        ads_donut(res.facts, cabinets)
 
 
 # ── Финансовый результат ─────────────────────────────────────────────────────

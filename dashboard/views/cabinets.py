@@ -269,7 +269,7 @@ def _cabinet_card(c: Cabinet, entities: dict):
 
         st.markdown("**Загрузить историю**")
         st.caption("Обычно не нужно: новые дни грузятся каждое утро, а нужный период загружается кнопкой "
-                   "«Загрузить» над любым отчётом. Здесь — первая загрузка или перезагрузка отдельных данных.")
+                   "«Обновить данные» над любым отчётом. Здесь — первая загрузка или перезагрузка отдельных данных.")
         d1, d2, d3, d4 = st.columns([1, 1, 2, 1])
         f0 = d1.date_input("с", value=date.today() - timedelta(days=30), format="DD.MM.YYYY", key=f"f0_{c.id}")
         f1 = d2.date_input("по", value=date.today() - timedelta(days=1), format="DD.MM.YYYY", key=f"f1_{c.id}",
