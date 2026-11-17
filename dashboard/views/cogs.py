@@ -276,9 +276,13 @@ def queue_prices(add: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     rows = pd.DataFrame({"Артикул": add["Артикул"].astype(str),
                          "Кабинет": [ALL if w == ALL else c for w, c in zip(add["Для"], add["Кабинет"])],
                          "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": add["Себестоимость, ₽/шт"]})
-    n = rows.groupby(["Артикул", "Кабинет"])["Себестоимость, ₽/шт"].nunique()
-    clash = sorted({a for (a, _), k in n.items() if k > 1})
-    return rows.drop_duplicates(["Артикул", "Кабинет"]).reset_index(drop=True), clash
+    # the P&L matches prices by the normalized article («00000002479» is «2479»): so does the check
+    key = rows["Артикул"].map(normalize_article)
+    n = rows.groupby([key, rows["Кабинет"]])["Себестоимость, ₽/шт"].nunique()
+    bad = {k for (k, _), c in n.items() if c > 1}
+    clash = sorted(set(rows.loc[key.isin(bad), "Артикул"]))
+    keep = ~pd.DataFrame({"k": key, "c": rows["Кабинет"]}).duplicated()
+    return rows[keep].reset_index(drop=True), clash
 
 
 def _queue(view: pd.DataFrame, labels: dict, back: dict):

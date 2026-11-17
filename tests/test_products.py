@@ -628,3 +628,14 @@ def test_cost_queue_rejects_two_prices_for_all_cabinets():
     add.loc[1, "Себестоимость, ₽/шт"] = 100.0
     rows, clash = queue_prices(add)
     assert clash == [] and len(rows) == 2 and list(rows["Кабинет"]) == [ALL, "WB · B"]
+
+
+def test_cost_queue_clash_uses_the_normalized_article():
+    import pandas as pd
+    from dashboard.views.cogs import ALL, queue_prices
+    add = pd.DataFrame({"Артикул": ["00000002479", "2479"], "Для": [ALL, ALL], "Кабинет": ["Ozon · A", "WB · B"],
+                        "Себестоимость, ₽/шт": [100.0, 120.0]})
+    assert queue_prices(add)[1] == ["00000002479", "2479"]
+    add.loc[1, "Себестоимость, ₽/шт"] = 100.0
+    rows, clash = queue_prices(add)
+    assert clash == [] and len(rows) == 1
