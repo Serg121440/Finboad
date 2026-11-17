@@ -433,7 +433,8 @@ def test_hero_hides_roi_for_a_viewer_without_cost_prices():
 def test_cabinet_bars_share_one_scale_with_the_100_mark():
     from dashboard.views.summary_hero import CAB_SCALE, cabinet_rows, cabinet_scale, cabinets_html
     f = _hero_facts()
-    assert cabinet_scale(cabinet_rows(f, _hero_cabinets())) == CAB_SCALE
+    assert cabinet_scale(cabinet_rows(f, _hero_cabinets())[:1]) == CAB_SCALE   # 85 ₽ of costs: the default width
+    assert round(cabinet_scale(cabinet_rows(f, _hero_cabinets()))) == 120
     f.loc[1, ["logistics", "profit"]] = [-650.0, -600.0]              # costs of 220 ₽ per 100 ₽
     rows = cabinet_rows(f, _hero_cabinets())
     assert round(cabinet_scale(rows)) == 220
