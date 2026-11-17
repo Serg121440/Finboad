@@ -604,3 +604,38 @@ def test_cabinet_tag_names_marketplace_and_cabinet():
     from dashboard.views.products import cabinet_tag
     v = pd.DataFrame({"marketplace": ["wb", "ozon"], "cabinet": ["Perfetto", "Перфетто"]})
     assert list(cabinet_tag(v)) == ["WB · Perfetto", "Ozon · Перфетто"]
+
+
+def test_cost_queue_groups_by_cabinet_and_article_biggest_first():
+    import pandas as pd
+    from dashboard.views.cogs import queue_rows
+    miss = pd.DataFrame({"cabinet_id": [1, 1, 2], "cabinet": ["A", "A", "B"], "article": ["X", "X", "Y"],
+                         "name": ["Валик", "Валик для спины", "Гиря"], "cost_missing_qty": [1, 2, 1],
+                         "revenue": [100.0, 200.0, 900.0]})
+    q = queue_rows(miss)
+    assert list(q["article"]) == ["Y", "X"]
+    assert q.loc[1, "qty"] == 3 and q.loc[1, "revenue"] == 300 and q.loc[1, "name"] == "Валик для спины"
+    assert queue_rows(miss.iloc[0:0]).empty
+
+
+def test_cost_queue_rejects_two_prices_for_all_cabinets():
+    import pandas as pd
+    from dashboard.views.cogs import ALL, queue_prices
+    add = pd.DataFrame({"Артикул": ["X", "X", "Y"], "Для": [ALL, ALL, "Этот кабинет"],
+                        "Кабинет": ["Ozon · A", "WB · B", "WB · B"], "Себестоимость, ₽/шт": [100.0, 120.0, 50.0]})
+    rows, clash = queue_prices(add)
+    assert clash == ["X"]
+    add.loc[1, "Себестоимость, ₽/шт"] = 100.0
+    rows, clash = queue_prices(add)
+    assert clash == [] and len(rows) == 2 and list(rows["Кабинет"]) == [ALL, "WB · B"]
+
+
+def test_cost_queue_clash_uses_the_normalized_article():
+    import pandas as pd
+    from dashboard.views.cogs import ALL, queue_prices
+    add = pd.DataFrame({"Артикул": ["00000002479", "2479"], "Для": [ALL, ALL], "Кабинет": ["Ozon · A", "WB · B"],
+                        "Себестоимость, ₽/шт": [100.0, 120.0]})
+    assert queue_prices(add)[1] == ["00000002479", "2479"]
+    add.loc[1, "Себестоимость, ₽/шт"] = 100.0
+    rows, clash = queue_prices(add)
+    assert clash == [] and len(rows) == 1
