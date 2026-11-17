@@ -13,9 +13,10 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, Filters, daily_totals_for, data_version, hide_cogs_columns, picked_now, result_for, period_filters,
+    MP_NAMES, Filters, daily_totals_for, data_version, hide_cogs_columns, pct, result_for, period_filters,
     rub, summarize, with_names,
 )
+from dashboard import selection
 from dashboard.quality import attention_issues, quality_block, status_line
 from dashboard.views.products_overview import NO_SALES, overview, previous_period
 from dashboard.xlsx import MIME, to_xlsx
@@ -460,11 +461,12 @@ def _all_products(f, g: pd.DataFrame, issues, limit: float):
     if highlight:
         styled = styled.apply(lambda d: marks.loc[d.index, d.columns].map(lambda m: FILL.get(m, "")), axis=None)
     # the selection is a row position: a new filter, sort or view must not open another product's card
-    sel_key = "prod_table_" + str(abs(hash((query, quick, limit, mp, sort, view_name, base, f.date_from, f.date_to,
-                                             tuple(f.cabinet_ids)))))
+    sel_key = selection.table_key("prod_sel", (query, quick, limit, mp, sort, view_name, base, f.date_from,
+                                                 f.date_to, tuple(f.cabinet_ids)))
+    slot = st.container()             # the selection line: above the table, filled once the ticks are known
     event = st.dataframe(styled, use_container_width=True, hide_index=True, key=sel_key,
                          height=min(560, 35 * (len(shown) + 1) + 3),
-                         on_select="rerun", selection_mode="single-row", column_config={
+                         on_select="rerun", selection_mode="multi-row", column_config={
                              **{c: (st.column_config.TextColumn(short_label(c, per), help=c, alignment="right")
                                     if c in blank else st.column_config.Column(short_label(c, per), help=c))
                                 for c in shown.columns[len(head):]},
@@ -474,7 +476,16 @@ def _all_products(f, g: pd.DataFrame, issues, limit: float):
                              "Товар": st.column_config.TextColumn(pinned=True, width="medium",
                                                                   help="Полное название — в карточке товара"),
                          })
-    st.caption(f"Товаров: {len(out)}. Нажмите на строку — откроется карточка товара.")
+    rows = [r for r in (event.selection.rows if event and event.selection else []) if r < len(v)]
+    picked = v.iloc[rows]
+    revenue, profit = picked["revenue"].sum(), picked["profit"].sum()
+    action = selection.bar(
+        slot, "prod_sel", len(rows),
+        f"выручка {rub(revenue)} · прибыль {rub(profit)} · маржа {pct(profit / revenue) if revenue > 0 else '—'}",
+        "карточку", lambda: to_xlsx([("Товары", out.iloc[rows], None, marks.iloc[rows] if highlight else None)],
+                                    header),
+        f"товары_выбранные_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}.xlsx")
+    st.caption(f"Товаров: {len(out)}.")
     name = f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}"
     header = [f"Товары {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, показатели «на единицу» — "
               f"{BASES[base][1]}", status_line(issues)]
@@ -498,10 +509,11 @@ def _all_products(f, g: pd.DataFrame, issues, limit: float):
             "Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. «нет в каталоге» — карточка не найдена "
             "в кабинете, название подтянется при следующей загрузке.")
 
-    rows = event.selection.rows if event and event.selection else []
-    pick = (sel_key, rows[0]) if rows and rows[0] < len(v) else None
-    if picked_now("products", pick):
+    if action == "open":
         _card_dialog(v.iloc[rows[0]], f, base)
+    elif action == "compare":
+        selection.compare_dialog(selection.compare_frame(out.iloc[rows].drop(columns=["SKU", "МП"], errors="ignore")
+                                                         .assign(Товар=lambda d: d["Товар"].map(short_name))))
 
 
 # ── product card ─────────────────────────────────────────────────────────────

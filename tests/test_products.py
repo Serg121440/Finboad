@@ -655,3 +655,36 @@ def test_plural_forms():
     from dashboard.common import plural
     assert [plural(n, "товар", "товара", "товаров") for n in (1, 2, 5, 11, 21, 104)] == \
         ["товар", "товара", "товаров", "товаров", "товар", "товара"]
+
+
+def test_compare_frame_one_column_per_product():
+    from dashboard.selection import compare_frame
+    sel = pd.DataFrame({"Артикул": ["A1", "A1", "B2"], "Кабинет": ["Ozon · X", "WB · Y", "Ozon · X"],
+                        "Выручка, ₽": [1234.4, 0.0, None], "Маржа, %": [12.345, None, -3.0]})
+    t = compare_frame(sel)
+    assert list(t.columns) == ["A1 · Ozon · X", "A1 · WB · Y", "B2 · Ozon · X"]
+    assert list(t.index) == ["Кабинет", "Выручка, ₽", "Маржа, %"]
+    assert t.loc["Выручка, ₽"].tolist() == ["1 234", "0", "—"]
+    assert t.loc["Маржа, %"].tolist() == ["12,3", "—", "-3,0"]
+
+
+def test_compare_frame_same_article_and_cabinet_kept_apart():
+    from dashboard.selection import compare_frame
+    t = compare_frame(pd.DataFrame({"Артикул": ["A", "A"], "x": [1, 2]}))
+    assert len(set(t.columns)) == 2
+
+
+def test_compare_frame_no_negative_zero():
+    from dashboard.selection import compare_frame
+    t = compare_frame(pd.DataFrame({"Артикул": ["A"], "Хранение, % выручки": [-0.01], "Прибыль, ₽": [-0.3]}))
+    assert t["A"].tolist() == ["0,0", "0"]
+
+
+def test_clear_selection_renews_table_key():
+    import streamlit as st
+    from dashboard.selection import _clear, table_key
+    k = table_key("t_sel", (1,))
+    _clear("t_sel")
+    assert table_key("t_sel", (1,)) != k
+    assert table_key("t_sel", (1,)) == table_key("t_sel", (1,))
+    st.session_state.pop("_clear_t_sel", None)
