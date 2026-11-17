@@ -163,12 +163,18 @@ def inject_css():
         min-height: 108px; margin-bottom: 8px; box-shadow: {SHADOW}; transition: border-color .2s, transform .2s;
       }}
       .fb-kpi:hover {{ border-color: {ACCENT}; transform: translateY(-1px); }}
-      /* one line each, so cards in a row keep the same height; the full text is in the tooltip */
-      .fb-kpi-label, .fb-kpi-delta {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-      .fb-kpi-label {{ font-size: 13px; color: {MUTED}; font-weight: 500; margin-bottom: 8px; line-height: 1.3; }}
+      /* the label takes up to two lines and always keeps room for two, the change stays on one line:
+         cards in a row are the same height and no name is cut */
+      .fb-kpi-label {{
+        font-size: 13px; color: {MUTED}; font-weight: 500; margin-bottom: 6px; line-height: 1.3;
+        min-height: 2.6em; display: flex; align-items: flex-end;
+      }}
+      .fb-kpi-delta {{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+      /* the number follows the card's own width, so it never leaves a narrow card */
+      .fb-kpi {{ container-type: inline-size; }}
       .fb-kpi-value {{
-        font-size: clamp(22px, 2vw, 28px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
-        white-space: nowrap;
+        font-size: 22px; font-size: clamp(17px, 15cqi, 28px); font-weight: 700; letter-spacing: -0.02em;
+        line-height: 1.1; white-space: nowrap;
       }}
       .fb-kpi-delta {{ font-size: 12px; font-weight: 500; margin-top: 6px; color: {MUTED}; }}
       .fb-kpi-delta.up {{ color: {SUCCESS}; }}
