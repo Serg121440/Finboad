@@ -270,6 +270,17 @@ def queue_rows(miss: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values(["revenue", "qty"], ascending=False).reset_index(drop=True)
 
 
+def queue_prices(add: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Filled queue rows as reference rows: one price per (article, cabinet). A price «for all cabinets»
+    typed differently in two rows of one article is a clash: nothing is saved, the articles are returned."""
+    rows = pd.DataFrame({"Артикул": add["Артикул"].astype(str),
+                         "Кабинет": [ALL if w == ALL else c for w, c in zip(add["Для"], add["Кабинет"])],
+                         "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": add["Себестоимость, ₽/шт"]})
+    n = rows.groupby(["Артикул", "Кабинет"])["Себестоимость, ₽/шт"].nunique()
+    clash = sorted({a for (a, _), k in n.items() if k > 1})
+    return rows.drop_duplicates(["Артикул", "Кабинет"]).reset_index(drop=True), clash
+
+
 def _queue(view: pd.DataFrame, labels: dict, back: dict):
     """First thing on the page: what was sold in the period without a cost price, to fill right here."""
     st.subheader("Продались без себестоимости")
@@ -305,12 +316,14 @@ def _queue(view: pd.DataFrame, labels: dict, back: dict):
     add = edited[edited["Себестоимость, ₽/шт"].notna()]
     if st.button(f"Сохранить {len(add)} цен" if len(add) else "Сохранить", type="primary",
                  disabled=add.empty, key="cogs_queue_save"):
-        rows = pd.DataFrame({"Артикул": add["Артикул"],
-                             "Кабинет": [ALL if w == ALL else c for w, c in zip(add["Для"], add["Кабинет"])],
-                             "Действует с": date(2000, 1, 1), "Себестоимость, ₽/шт": add["Себестоимость, ₽/шт"]})
-        _save(pd.concat([view, rows]), labels)
-        st.session_state["cogs_msg"] = f"Сохранено цен: {len(rows)}. Они действуют для всех продаж этих артикулов."
-        st.rerun()
+        rows, clash = queue_prices(add)
+        if clash:
+            st.error("Для всех кабинетов введены разные цены одного артикула: " + ", ".join(clash) +
+                     ". Оставьте одну цену или выберите «Этот кабинет» в каждой строке.")
+        else:
+            _save(pd.concat([view, rows]), labels)
+            st.session_state["cogs_msg"] = f"Сохранено цен: {len(rows)}. Они действуют для всех продаж этих артикулов."
+            st.rerun()
     if (q["article"] == "").any():
         st.caption(f"Без артикула: {(q['article'] == '').sum()} — товара ещё нет в каталоге кабинета; он появится "
                    "после загрузки товаров.")

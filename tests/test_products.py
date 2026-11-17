@@ -616,3 +616,15 @@ def test_cost_queue_groups_by_cabinet_and_article_biggest_first():
     assert list(q["article"]) == ["Y", "X"]
     assert q.loc[1, "qty"] == 3 and q.loc[1, "revenue"] == 300 and q.loc[1, "name"] == "Валик для спины"
     assert queue_rows(miss.iloc[0:0]).empty
+
+
+def test_cost_queue_rejects_two_prices_for_all_cabinets():
+    import pandas as pd
+    from dashboard.views.cogs import ALL, queue_prices
+    add = pd.DataFrame({"Артикул": ["X", "X", "Y"], "Для": [ALL, ALL, "Этот кабинет"],
+                        "Кабинет": ["Ozon · A", "WB · B", "WB · B"], "Себестоимость, ₽/шт": [100.0, 120.0, 50.0]})
+    rows, clash = queue_prices(add)
+    assert clash == ["X"]
+    add.loc[1, "Себестоимость, ₽/шт"] = 100.0
+    rows, clash = queue_prices(add)
+    assert clash == [] and len(rows) == 2 and list(rows["Кабинет"]) == [ALL, "WB · B"]
