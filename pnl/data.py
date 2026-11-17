@@ -3,7 +3,7 @@
 from datetime import date
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from core.db import engine as db_engine
 from core.models import (
@@ -46,10 +46,22 @@ def load(date_from: date, date_to: date, cabinet_ids: list[int] | None = None) -
     camps = _frame(select(AdCampaign.cabinet_id, AdCampaign.campaign_id, AdCampaign.type, AdCampaign.name)
                    .where(AdCampaign.cabinet_id.in_(tax_ids)), ["cabinet_id", "campaign_id", "type"])
     orders = _frame(select(OrderLine.cabinet_id, OrderLine.date, OrderLine.sku, OrderLine.qty,
-                           OrderLine.amount, OrderLine.cancelled, OrderLine.status)
+                           OrderLine.amount, OrderLine.cancelled, OrderLine.status, OrderLine.posting)
                     .where(OrderLine.cabinet_id.in_(tax_ids), OrderLine.date >= start,
                            OrderLine.date <= date_to),
-                    ["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status"])
+                    ["cabinet_id", "date", "sku", "qty", "amount", "cancelled", "status", "posting"])
+    # WB orders get their outcome from the realization reports, which come later than the order:
+    # every sale and return by srid from the period start on, whatever the report date
+    wb_ids = [int(i) for i in cabs[cabs["id"].isin(ids) & (cabs["marketplace"] == "wb")]["id"]]
+    sales = pd.DataFrame(columns=["cabinet_id", "posting", "sold", "returned"])
+    if wb_ids:
+        sq = select(LedgerEntry.cabinet_id, LedgerEntry.posting,
+                    func.sum(case((LedgerEntry.category == "sale", LedgerEntry.qty), else_=0)).label("sold"),
+                    func.sum(case((LedgerEntry.category == "return", -LedgerEntry.qty), else_=0)).label("returned")) \
+            .where(LedgerEntry.cabinet_id.in_(wb_ids), LedgerEntry.category.in_(["sale", "return"]),
+                   LedgerEntry.date >= date_from, LedgerEntry.posting != "") \
+            .group_by(LedgerEntry.cabinet_id, LedgerEntry.posting)
+        sales = _frame(sq, ["cabinet_id", "posting", "sold", "returned"])
     prods = _frame(select(Product.cabinet_id, Product.sku, Product.article, Product.name, Product.category,
                           Product.vat10).where(Product.cabinet_id.in_(tax_ids)),
                    ["cabinet_id", "sku", "article", "name", "category", "vat10"])
@@ -75,4 +87,4 @@ def load(date_from: date, date_to: date, cabinet_ids: list[int] | None = None) -
     led["sku"] = led["sku"].where(led["sku"].notna(), None)
     return Data(cabinets=cabs, entities=ents, tax_settings=taxes, ledger=led, ads=ads, campaigns=camps,
                 orders=orders, products=prods, cogs=cogs, fixed=fixed, date_from=date_from,
-                date_to=date_to, extra={"selected": ids})
+                date_to=date_to, extra={"selected": ids}, order_sales=sales)

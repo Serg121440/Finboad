@@ -21,6 +21,7 @@ class Issue:
     blocking: bool = True  # the profit is not final while it's open
     link: str = ""         # «url_path» or «url_path:quick filter» the button opens
     button: str = ""       # its label
+    scope: str = "profit"  # what it distorts: "data" (everything), "ads" (ad numbers) or "profit"
 
 
 def months_of(d0: date, d1: date) -> list[date]:
@@ -59,14 +60,16 @@ def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame
             since = max(d0, last + timedelta(days=1)) if last else d0
             out.append(Issue(f"{name}: отчёта WB о реализации за {since:%d.%m}–{until:%d.%m} ещё нет — продажи, "
                              "комиссия и логистика WB за эти дни не учтены",
-                             "кнопка «Загрузить» выше (ежедневный отчёт WB выходит на следующий день)"))
+                             "кнопка «Обновить данные» выше (ежедневный отчёт WB выходит на следующий день)",
+                             scope="data"))
     for name, miss in missing_by_cabinet.items():
         if miss:
-            out.append(Issue(f"{name}: не загружено дней в периоде — {miss}", "кнопка «Загрузить» выше"))
+            out.append(Issue(f"{name}: не загружено дней в периоде — {miss}", "кнопка «Обновить данные» выше",
+                             scope="data"))
     for name, miss in (ads_missing_by_cabinet or {}).items():
         if miss:
             out.append(Issue(f"{name}: реклама не загружена за дней — {miss}, расходы занижены",
-                             "кнопка «Загрузить» выше"))
+                             "кнопка «Обновить данные» выше", scope="ads"))
     if not facts.empty:
         m = facts[facts["cost_missing_qty"] != 0]
         if not m.empty:
@@ -94,7 +97,7 @@ def find_issues(facts: pd.DataFrame, taxes: pd.DataFrame, cabinets: pd.DataFrame
     partial = [month_label(m, d0, d1) for m in months_of(d0, d1) if "неполный" in month_label(m, d0, d1)]
     if partial:
         out.append(Issue("Неполный месяц: " + ", ".join(partial) +
-                         " — сравнивайте с другими месяцами осторожно", blocking=False))
+                         " — сравнивайте с другими месяцами осторожно", blocking=False, scope="data"))
     return out
 
 
@@ -175,11 +178,16 @@ def _links(issues: list[Issue], key: str) -> None:
             go(page, **({"prod_quick": quick} if quick else {}))
 
 
-def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q", compact: bool = False) -> list[Issue]:
+def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q", compact: bool = False,
+                  scopes: tuple[str, ...] | None = None) -> list[Issue]:
     """Status above the numbers: final or preliminary, what's missing, and what needs attention.
     Each line with a fix or a selection gets a button that opens it. compact: one folded line,
-    the list and the buttons inside it (pages whose charts should come first)."""
+    the list and the buttons inside it (pages whose charts should come first). scopes: only the
+    issues that distort this page (the ad report does not depend on cost prices or taxes)."""
     issues = issues_for(f, res)
+    if scopes:
+        issues = [i for i in issues if i.scope in scopes]
+        return _scoped_block(issues, extra or [], key)
     blocking = [i for i in issues if i.blocking]
     notes = issues + (extra or [])
     lines = "\n".join(f"- {i.text}" + (f" → {i.where}" if i.where else "") for i in notes)
@@ -200,6 +208,18 @@ def quality_block(f, res, extra: list[Issue] | None = None, key: str = "q", comp
         st.success("**Расчёт полный**: себестоимость, налоги и постоянные расходы учтены, период загружен.",
                    icon=":material/check_circle:")
     _links(notes, key)
+    return issues
+
+
+def _scoped_block(issues: list[Issue], extra: list[Issue], key: str) -> list[Issue]:
+    """One folded line about the data this page stands on; nothing when it is complete."""
+    notes = issues + extra
+    if notes:
+        blocking = [i for i in issues if i.blocking]
+        title = f"Данные за период неполные: {len(blocking)}" if blocking else f"К сведению: {len(notes)}"
+        with st.expander(title, icon=":material/warning:" if blocking else ":material/info:"):
+            st.markdown("\n".join(f"- {i.text}" + (f" → {i.where}" if i.where else "") for i in notes))
+            _links(notes, key)
     return issues
 
 

@@ -290,30 +290,70 @@ def _load_status(ids: list[int]):
         st.rerun(scope="app")
 
 
+COVERAGE = (("Начисления", ("accruals", "report")), ("Заказы", ("orders",)), ("Реклама", ("ads",)))
+
+
+def coverage(d0: date, d1: date, runs: dict[str, dict[int, list]], cabinets: list[tuple[int, str, str]],
+             wb_to: dict[int, date | None]) -> list[dict]:
+    """Per cabinet and source, how many days of d0..d1 are loaded. runs: source -> cabinet -> intervals;
+    cabinets: (id, label, marketplace). WB money comes from realization reports, so its «Начисления»
+    are covered up to the end of the latest report."""
+    out = []
+    for cid, label, mp in cabinets:
+        cells = {}
+        for name, _ in COVERAGE:
+            if name == "Начисления" and mp == "wb":
+                last = wb_to.get(cid)
+                miss = (d1 - d0).days + 1 if last is None or last < d0 else max(0, (d1 - last).days)
+            else:
+                miss = missing_days(runs[name].get(cid, []), d0, d1) if d0 <= d1 else 0
+            cells[name] = miss
+        out.append({"id": cid, "label": label, "mp": mp, **cells})
+    return out
+
+
+def _last_sync(ids: list[int]) -> datetime | None:
+    with session() as s:
+        return s.scalar(select(func.max(SyncRun.finished_at)).where(SyncRun.cabinet_id.in_(ids),
+                                                                     SyncRun.status == "ok"))
+
+
 def _load_block(col, d0: date, d1: date, ids: list[int], names: dict[int, str]):
-    """Which days are loaded per cabinet, and a button to load the selected period."""
+    """What is loaded for the period by source and cabinet, when data last came, and a button that
+    brings fresh data. The period itself applies at once."""
+    from dashboard.quality import wb_report_ends
     from sync import runner
-    have = _loaded_intervals()
     end = min(d1, date.today() - timedelta(days=1))
-    notes, gaps = [], False
-    for i in ids:
-        spans = merge_intervals(have.get(i, []))
-        miss = missing_days(spans, d0, end) if d0 <= end else 0
-        gaps |= miss > 0
-        text = ", ".join(f"{a:%d.%m}–{b:%d.%m.%y}" for a, b in spans[-3:]) or "ещё не загружены"
-        notes.append(f"{names[i]}: загружено {text}" + (f" · в периоде не хватает дней: {miss}" if miss else ""))
+    cabs = cabinets_df().set_index("id")
+    rows = [(i, names[i], cabs.loc[i, "marketplace"]) for i in ids]
+    runs = {n: _loaded_intervals(streams) for n, streams in COVERAGE}
+    wb = [i for i, _, mp in rows if mp == "wb"]
+    cov = coverage(d0, end, runs, rows, wb_report_ends(wb)) if d0 <= end else []
+    gaps = any(r["Начисления"] or r["Заказы"] for r in cov)
     busy = any(runner.is_running(i) for i in ids)
-    if col.button(f"Загрузить {d0:%d.%m} — {d1:%d.%m}", disabled=busy, use_container_width=True,
+    if col.button("Обновить данные", disabled=busy, use_container_width=True, icon=":material/sync:",
                   type="primary" if gaps else "secondary",
-                  help="Начисления, заказы, реклама и товары выбранных кабинетов за этот период из API. "
-                       "Повторная загрузка заменяет данные периода."):
+                  help=f"Загрузить из API начисления, заказы, рекламу и товары выбранных кабинетов за "
+                       f"{d0:%d.%m}–{d1:%d.%m}. Повторная загрузка заменяет данные периода."):
         for i in ids:
             runner.start_background(i, d0, d1)
         st.session_state["load_running"] = True
         st.rerun()
-    st.caption(" · ".join(notes))
+    short = [n for n, _ in COVERAGE if any(r[n] for r in cov)]
+    last = _last_sync(ids)
+    state = ("неполные: " + ", ".join(n.lower() for n in short)) if short else "загружены полностью"
+    a, b = st.columns([4, 1], vertical_alignment="center")
+    a.caption(f"Цифры за {d0:%d.%m}–{d1:%d.%m} · данные {state}"
+              + (f" · обновлено {last:%d.%m %H:%M}" if last else ""))
+    if cov:
+        with b.popover("По источникам", use_container_width=True):
+            st.markdown("Сколько дней периода не хватает по каждому источнику. Начисления WB — по последнему "
+                        "отчёту о реализации; реклама влияет только на рекламные показатели.")
+            st.dataframe(pd.DataFrame([{"Кабинет": r["label"], **{n: "✓" if not r[n] else f"нет {r[n]} дн."
+                                                                   for n, _ in COVERAGE}} for r in cov]),
+                         hide_index=True, use_container_width=True)
     if gaps:
-        st.warning("За часть периода данных нет — нажмите «Загрузить», отчёт обновится сам.")
+        st.warning("За часть периода данных нет — нажмите «Обновить данные», отчёт пересчитается сам.")
     _load_status(ids)
 
 

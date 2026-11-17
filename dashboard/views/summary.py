@@ -7,7 +7,7 @@ from dashboard.common import (
     MP_NAMES, Filters, daily_results_for, data_version, num, pct, result_for, rub, period_filters, summarize,
 )
 from dashboard.quality import attention_issues, quality_block, status_line
-from dashboard.theme import kpi_card, tree_table, OZON_ACCENT, WB_ACCENT, SUCCESS, DANGER, INFO
+from dashboard.theme import tree_table
 from pnl.categories import CATEGORIES
 from pnl.engine import DETAIL_LINES
 
@@ -207,8 +207,8 @@ def render():
 
     from dashboard.views.products import attention_counts, drr_limit, product_table
     limit = drr_limit()
-    issues = quality_block(f, res, attention_issues(attention_counts(product_table(f, res)[1], limit), limit),
-                           key="q_sum", compact=True)
+    watch = attention_issues(attention_counts(product_table(f, res)[1], limit), limit)
+    issues = quality_block(f, res, watch, key="q_sum", compact=True)
     final = "" if not any(i.blocking for i in issues) else " (предварительно)"
 
     cols, scopes = {}, []
@@ -222,26 +222,13 @@ def render():
     cols["Всего"] = total
     scopes.append(list(f.cabinet_ids))
 
-    k = st.columns(4)
-    with k[0]:
-        kpi_card("Выручка", rub(total.get("revenue")), f"заказы {rub(total['ordered_sum'])}", accent=INFO)
-    with k[1]:
-        p = total.get("profit", 0)
-        kpi_card("Прибыль до постоянных", rub(p), f"маржа {pct(total.get('margin'))}",
-                 "up" if p >= 0 else "down", accent=SUCCESS if p >= 0 else DANGER)
-    with k[2]:
-        kpi_card("Реклама", rub(-total.get("ads", 0)), f"ДРР {pct(total.get('drr'))}", accent=WB_ACCENT)
-    with k[3]:
-        n = total["net"]
-        kpi_card("Чистая прибыль" + final, rub(n), f"постоянные {rub(-total['fixed'])}",
-                 "up" if n >= 0 else "down", accent=OZON_ACCENT)
-
+    from dashboard.views import summary_hero
     from dashboard.views.products_overview import previous_period
-    from dashboard.views.report_charts import summary_overview
-    p0, p1, _ = previous_period(f.date_from, f.date_to)
+    p0, p1, label = previous_period(f.date_from, f.date_to)
     ids = tuple(sorted(f.cabinet_ids))
-    summary_overview(f, res, daily_results_for(f.date_from, f.date_to, ids, data_version()),
-                     daily_results_for(p0, p1, ids, data_version()), p0, p1)
+    summary_hero.render(f, res, total, final, issues + watch, limit,
+                        daily_results_for(f.date_from, f.date_to, ids, data_version()),
+                        daily_results_for(p0, p1, ids, data_version()), p0, p1, label, hide_cogs=bool(_hidden()))
     st.subheader("Отчёт")
 
     if "_common" in fixed_by_mp and len(cols) > 1:

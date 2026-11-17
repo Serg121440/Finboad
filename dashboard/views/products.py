@@ -49,10 +49,15 @@ def revenue_share(g: pd.DataFrame, cols: list[str]) -> pd.Series:
     return -g[cols].sum(axis=1) / g["revenue"].where(g["revenue"] > 0) * 100
 
 
+BUYOUT_FORMULA = "выкуплено / (выкуплено + отменено + невыкуп) среди заказов периода; заказы в пути не считаются"
+
+
 def buyout_rate(g: pd.DataFrame) -> pd.Series:
     """Share of the period's orders that were bought out, among orders with a known outcome
-    (all in transit — unknown yet). Without statuses (WB, old loads) — share of orders not cancelled."""
-    resolved = g["delivered_qty"] + g["cancelled_qty"]
+    (all in transit — unknown yet). WB: «выкуплено» and «невыкуп» come from the realization reports
+    by srid. Lines with no status at all (old loads) — share of orders not cancelled."""
+    refused = g["refused_qty"] if "refused_qty" in g else 0
+    resolved = g["delivered_qty"] + g["cancelled_qty"] + refused
     known = g["delivered_qty"] / resolved.replace(0, np.nan)
     fallback = (g["ordered_qty"] - g["cancelled_qty"]) / g["ordered_qty"].replace(0, np.nan)
     return known.where(g["unknown_qty"] == 0, fallback)
@@ -244,7 +249,8 @@ def views(per: str, to: str) -> dict[str, list[str] | None]:
         "Расходы": ["Выручка, ₽", "Комиссия, ₽", "Эквайринг, ₽", "Логистика, ₽", "Хранение и прочее, ₽",
                     "Общие расходы МП, ₽", "Себестоимость, ₽", "Налоги, ₽",
                     *[f"{t}, % выручки" for t in SHARE_COLS], "Прибыль, ₽"],
-        "Заказы и продажи": ["Заказано, шт", "Доставлено, шт", "Отменено, шт", "В пути, шт", "% выкупа заказов",
+        "Заказы и продажи": ["Заказано, шт", "Выкуплено, шт", "Отменено, шт", "Невыкуп, шт", "В пути, шт",
+                             "% выкупа заказов",
                              "Продано, шт", "Возвраты, шт", "Выкуп нетто, шт", "Сделки, шт", "Заказано, ₽",
                              "Выручка, ₽"],
         "Все показатели": None,
@@ -260,8 +266,9 @@ def product_rows(v: pd.DataFrame, per: str, to: str) -> pd.DataFrame:
         # costs as a share of the period's revenue (выкупы), whatever the base above
         **{f"{t}, % выручки": revenue_share(v, cols) for t, cols in SHARE_COLS.items()},
         # orders of the period and what became of them
-        "Заказано, шт": v["ordered_qty"], "Доставлено, шт": v["delivered_qty"], "Отменено, шт": v["cancelled_qty"],
-        "В пути, шт": v["transit_qty"], "% выкупа заказов": v["buyout_pct"],
+        "Заказано, шт": v["ordered_qty"], "Выкуплено, шт": v["delivered_qty"], "Отменено, шт": v["cancelled_qty"],
+        "Невыкуп, шт": v["refused_qty"], "В пути, шт": v["transit_qty"] + v["unknown_qty"],
+        "% выкупа заказов": v["buyout_pct"],
         # sales of the period
         "Продано, шт": v["sold"], "Возвраты, шт": v["returned"], "Выкуп нетто, шт": v["net_qty"],
         "Сделки, шт": v["sold"] + v["cancelled_qty"],
@@ -463,8 +470,8 @@ def render():
         st.caption(
             f"«—» — показатель не "
             f"применяется: нет продаж (не на что делить), нет заказов или только возвраты. От выбора выше зависят "
-            f"колонки «{per}» и «{to}». «% выкупа заказов» — доставлено / (доставлено + отменено) среди заказов "
-            "периода; заказы в пути не учитываются. «только возвраты» — продаж нет, вернули проданное раньше: "
+            f"колонки «{per}» и «{to}». «% выкупа заказов» — {BUYOUT_FORMULA}. "
+            "WB: выкуп и невыкуп — по отчётам о реализации, поэтому свежие заказы до выхода отчёта числятся в пути. «только возвраты» — продаж нет, вернули проданное раньше: "
             "выручка и комиссия сторнируются, себестоимость возвращается. «Реклама «все товары»» и «Общие расходы "
             "МП» — расходы кабинета без товара, распределённые по товарам (см. ниже); они входят в прибыль и ДРР. "
             "Эквайринг Ozon берёт при оплате заказа, комиссию — при продаже. «нет в каталоге» — карточка не найдена "
@@ -566,7 +573,8 @@ def product_card(row: pd.Series, f, base: str):
                     f"ДРР {_cell(row['drr_rev'] / 100 if pd.notna(row['drr_rev']) else np.nan, '%')}",
                     delta_color="off", delta_arrow="off")
         k[3].metric("Заказано", f"{row['ordered_qty']:.0f} шт", f"выкуп {_cell(row['buyout_pct'] / 100, '%')}"
-                    if pd.notna(row["buyout_pct"]) else "выкуп —", delta_color="off", delta_arrow="off")
+                    if pd.notna(row["buyout_pct"]) else "выкуп —", delta_color="off", delta_arrow="off",
+                    help=f"Выкуп — {BUYOUT_FORMULA}.")
 
         a, b = st.columns(2)
         with a:
@@ -585,12 +593,18 @@ def product_card(row: pd.Series, f, base: str):
         st.markdown("**Заказы, возвраты и невыкупы**")
         o = st.columns(6)
         o[0].metric("Заказано", f"{row['ordered_qty']:.0f}")
-        o[1].metric("Доставлено", f"{row['delivered_qty']:.0f}")
+        o[1].metric("Выкуплено", f"{row['delivered_qty']:.0f}")
         o[2].metric("Отменено", f"{row['cancelled_qty']:.0f}", rub(row["cancelled_sum"]) if row["cancelled_qty"]
                     else None, delta_color="off", delta_arrow="off")
-        o[3].metric("В пути", f"{row['transit_qty']:.0f}")
-        o[4].metric("Продано", f"{row['sold']:.0f}")
-        o[5].metric("Возвраты", f"{row['returned']:.0f}")
+        o[3].metric("Невыкуп", f"{row['refused_qty']:.0f}", help="Продано, затем возвращено")
+        o[4].metric("В пути", f"{row['transit_qty'] + row['unknown_qty']:.0f}",
+                    help="Заказ не отменён и ещё не попал в отчёт о продажах")
+        resolved = row["delivered_qty"] + row["cancelled_qty"] + row["refused_qty"]
+        o[5].metric("Выкуп", _cell(row["buyout_pct"] / 100, "%") if pd.notna(row["buyout_pct"]) else "—",
+                    f"{row['delivered_qty']:.0f} из {resolved:.0f}" if resolved else None,
+                    delta_color="off", delta_arrow="off", help=f"Выкуп — {BUYOUT_FORMULA}.")
+        st.caption(f"Продано за период {row['sold']:.0f} шт, возвратов {row['returned']:.0f}: это продажи по дате "
+                   "отчёта, среди них есть заказы прошлых периодов.")
 
         st.markdown("**По дням**")
         d = daily_for(f.date_from, f.date_to, int(row["cabinet_id"]), str(row["sku"]), data_version())

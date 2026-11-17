@@ -364,3 +364,236 @@ def test_short_labels():
     assert short_label("Маржа к выручке, %", "на 1 выкуп") == "Маржа, %"
     assert short_label("Реклама «все товары», ₽", "на 1 выкуп") == "Рекл. общая, ₽"
     assert short_label("Выручка, ₽", "на 1 выкуп") == "Выручка, ₽"
+
+
+# ── «Финансовый результат»: верх страницы ────────────────────────────────────
+
+def _hero_facts():
+    import pandas as pd
+    return pd.DataFrame({
+        "cabinet_id": [1, 2], "revenue": [1000.0, 500.0], "commission": [-400.0, -200.0],
+        "logistics": [-100.0, -150.0], "storage": [0.0, 0.0], "penalties": [0.0, 0.0], "services": [0.0, 0.0],
+        "other": [0.0, 0.0], "ads": [-50.0, -100.0], "cogs": [-300.0, -150.0], "vat": [0.0, 0.0],
+        "tax": [0.0, 0.0], "profit": [150.0, -100.0]})
+
+
+def _hero_cabinets():
+    import pandas as pd
+    return pd.DataFrame({"id": [1, 2], "name": ["Альфа", "Бета"], "marketplace": ["ozon", "wb"]})
+
+
+def test_cabinet_rows_per_100_and_order():
+    from dashboard.views.summary_hero import cabinet_rows
+    rows = cabinet_rows(_hero_facts(), _hero_cabinets())
+    assert [r["id"] for r in rows] == [1, 2]                       # biggest revenue first
+    assert round(rows[0]["per"], 1) == 15.0 and round(rows[1]["per"], 1) == -20.0
+    assert round(rows[1]["parts"]["Логистика"], 1) == 30.0
+    assert round(rows[0]["parts"].sum() + rows[0]["per"], 6) == 100   # 100 ₽ = costs + what is left
+
+
+def test_insights_name_the_losing_and_the_earning_cabinet():
+    from dashboard.quality import Issue
+    from dashboard.views.summary_hero import cabinet_rows, insights
+    rows = cabinet_rows(_hero_facts(), _hero_cabinets())
+    issues = [Issue("Неполный месяц", blocking=False),
+              Issue("Нет себестоимости: 5 шт., 4 товаров — прибыль завышена", link="products:Нет себестоимости",
+                    button="Товары без себестоимости")]
+    out = insights(rows, issues)
+    assert [i["tone"] for i in out] == ["neg", "neg", "pos"]
+    assert "Бета" in out[0]["title"] and "20,0 ₽" in out[0]["title"]
+    assert out[1]["title"] == "Нет себестоимости: 5 шт., 4 товаров" and out[1]["text"] == "Прибыль завышена."
+    assert out[1]["link"] == "products:Нет себестоимости"
+    assert "единственный прибыльный" in out[2]["title"] and "+150 ₽" in out[2]["title"]
+    assert insights(rows[:1], []) == []                               # one cabinet, nothing open — no cards
+
+
+def test_pace_compares_the_same_number_of_days():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace, pace_svg
+    cur = pd.DataFrame({"date": [date(2026, 11, 1), date(2026, 11, 2)], "revenue": [100.0, 50.0]})
+    prev = pd.DataFrame({"date": [date(2026, 10, 30), date(2026, 10, 31), date(2026, 10, 29)],
+                         "revenue": [60.0, 500.0, 40.0]})
+    days, before, change = pace(cur, prev, date(2026, 11, 1), date(2026, 11, 3), date(2026, 10, 29), date(2026, 10, 31),
+                                today=date(2026, 11, 3))
+    assert len(days) == 2                                             # the third day is not loaded yet
+    assert round(change, 2) == 0.5                                    # 150 against 40 + 60
+    svg = pace_svg(days, before, 3, "29.10–31.10")
+    assert svg.startswith("<svg") and "29.10–31.10" in svg
+    assert pace_svg(days.iloc[:1], before, 3, "x") == ""
+
+
+def test_hero_hides_roi_for_a_viewer_without_cost_prices():
+    from dashboard.views.summary_hero import hero_html
+    total = {"net": -100.0, "margin": -0.05, "roi": -0.1, "fixed": 0, "revenue": 2000.0}
+    assert "ROI" in hero_html(total, "", None, "", "")
+    html = hero_html(total, " (предварительно)", -0.05, "к прошлому месяцу", "", hide_cogs=True)
+    assert "ROI" not in html and "−100 ₽" in html and "предварительно" in html and "▼ 5 %" in html
+
+
+def test_cabinet_bars_share_one_scale_with_the_100_mark():
+    from dashboard.views.summary_hero import CAB_SCALE, cabinet_rows, cabinet_scale, cabinets_html
+    f = _hero_facts()
+    assert cabinet_scale(cabinet_rows(f, _hero_cabinets())[:1]) == CAB_SCALE   # 85 ₽ of costs: the default width
+    assert round(cabinet_scale(cabinet_rows(f, _hero_cabinets()))) == 120
+    f.loc[1, ["logistics", "profit"]] = [-650.0, -600.0]              # costs of 220 ₽ per 100 ₽
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert round(cabinet_scale(rows)) == 220
+    assert 'left:45.45%' in cabinets_html(rows)                       # the mark moves with the scale
+
+
+def test_pace_compares_a_whole_month_with_the_whole_previous_one():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace
+    cur = pd.DataFrame({"date": pd.date_range("2026-09-01", "2026-09-30").date, "revenue": 1000 / 30})
+    prev = pd.DataFrame({"date": pd.date_range("2026-08-01", "2026-08-31").date, "revenue": 0.0})
+    prev.loc[[0, 30], "revenue"] = 1000.0                             # half of August is its last day
+    _, _, change = pace(cur, prev, date(2026, 9, 1), date(2026, 9, 30), date(2026, 8, 1), date(2026, 8, 31))
+    assert round(change, 2) == -0.5
+
+
+# ── Реклама ──────────────────────────────────────────────────────────────────
+
+def _ads_named():
+    import pandas as pd
+    return pd.DataFrame({
+        "cabinet_id": [1, 1, 1, 1], "sku": ["", "a", "b", "c"], "name": ["", "Альфа", "Бета", "Гамма"],
+        "article": ["", "A", "B", "C"], "marketplace": ["ozon"] * 4, "cabinet": ["Перфетто"] * 4,
+        "ads": [-500.0, -100.0, -300.0, -50.0], "revenue": [0.0, 2000.0, 1000.0, 0.0], "profit": [0.0, 300.0, -200.0, -50.0]})
+
+
+def _ads_daily():
+    import pandas as pd
+    return pd.DataFrame({"cabinet_id": [1, 1, 1], "sku": ["a", "b", "c"], "ordered_sum": [2500.0, 1500.0, 0.0],
+                         "views": [10000, 10000, 200], "clicks": [400, 100, 2], "ads": [100.0, 300.0, 50.0]})
+
+
+def test_ads_product_rows_and_selections():
+    from dashboard.views.ads import picks, product_rows
+    g = product_rows(_ads_named(), _ads_daily())
+    assert list(g["sku"]) == ["b", "a", "c"]                          # common ad money is not a product
+    assert round(g.loc[0, "drr_orders"], 1) == 20.0 and round(g.loc[0, "drr"], 1) == 30.0
+    m = picks(g, 10.0)
+    assert list(g.loc[m["Выше цели"], "sku"]) == ["b"]
+    assert list(g.loc[m["Расход без заказов"], "sku"]) == ["c"]
+    assert list(g.loc[m["Плохой CTR и дорого"], "sku"]) == ["b"]       # CTR 1 % against the average 2,5 %
+
+
+def test_ads_signals_name_the_selection_and_its_money():
+    from dashboard.quality import Issue
+    from dashboard.views.ads import product_rows, signals
+    g = product_rows(_ads_named(), _ads_daily())
+    out = signals(g, 10.0, [Issue("Ozon · Перфетто: не загружено дней в периоде — 3", "кнопка «Обновить данные» выше"),
+                            Issue("Неполный месяц", blocking=False)])
+    assert [s["pick"] for s in out] == ["Выше цели", "Расход без заказов", "Плохой CTR и дорого", ""]
+    assert out[0]["title"] == "Выше цели: 1 товар" and "300 ₽" in out[0]["text"]
+    assert out[-1]["title"] == "Ozon · Перфетто: не загружено дней в периоде"
+
+
+def test_short_name_keeps_whole_words():
+    from dashboard.views.ads import short_name
+    assert short_name("Гантели  разборные 20 кг") == "Гантели разборные 20 кг"
+    s = short_name("Батут детский с защитной сеткой и лестницей, диаметр 183 см, синий", 30)
+    assert s.endswith("…") and len(s) <= 31 and not s[:-1].endswith(" ")
+
+
+def test_coverage_by_source_counts_wb_by_its_report():
+    from datetime import date
+    from dashboard.common import coverage
+    runs = {"Начисления": {1: [(date(2026, 11, 16), date(2026, 11, 16))]},
+            "Заказы": {1: [(date(2026, 11, 1), date(2026, 11, 15))], 2: [(date(2026, 11, 1), date(2026, 11, 15))]},
+            "Реклама": {1: [(date(2026, 11, 1), date(2026, 11, 12))], 2: [(date(2026, 11, 1), date(2026, 11, 15))]}}
+    cov = coverage(date(2026, 11, 1), date(2026, 11, 15), runs, [(1, "Ozon · A", "ozon"), (2, "WB · B", "wb")],
+                   {2: date(2026, 11, 9)})
+    assert cov[0]["Начисления"] == 15 and cov[0]["Заказы"] == 0 and cov[0]["Реклама"] == 3
+    assert cov[1]["Начисления"] == 6                                  # report up to 09.11
+
+
+def test_ad_page_issues_leave_out_profit_only_ones():
+    from datetime import date
+    import pandas as pd
+    from dashboard.quality import find_issues
+    facts = pd.DataFrame({"cost_missing_qty": [3], "sku": ["a"]})
+    cabs = pd.DataFrame({"name": ["A"], "entity_id": [None]})
+    out = find_issues(facts, pd.DataFrame(), cabs, date(2026, 11, 1), date(2026, 11, 15), set(), {"A": 2}, {"A": 1})
+    assert {i.scope for i in out if "себестоимости" in i.text or "Налог" in i.text or "Постоянные" in i.text} \
+        == {"profit"}
+    assert {i.scope for i in out if "не загружено" in i.text} == {"data"}
+    assert {i.scope for i in out if "реклама не загружена" in i.text} == {"ads"}
+
+
+def test_ads_product_rows_without_daily_statistics():
+    import pandas as pd
+    from dashboard.views.ads import picks, product_rows
+    g = product_rows(_ads_named(), pd.DataFrame())
+    assert list(g["sku"]) == ["b", "a", "c"] and g["ordered_sum"].sum() == 0
+    assert picks(g, 10.0)["Расход без заказов"].sum() == 3
+    assert product_rows(_ads_named().iloc[:1], pd.DataFrame()).empty
+
+
+# ── выкуп WB по отчётам о реализации ─────────────────────────────────────────
+
+def test_wb_orders_get_their_outcome_from_realization_sales():
+    from datetime import date
+    import pandas as pd
+    from pnl.engine import Data, orders_table
+    from dashboard.views.products import buyout_rate
+    e = pd.DataFrame()
+    orders = pd.DataFrame({"cabinet_id": [2] * 6, "date": [date(2026, 11, 3)] * 6, "sku": ["850"] * 6,
+                           "qty": [1] * 6, "amount": [1000.0] * 6,
+                           "cancelled": [False, False, False, False, True, False],
+                           "status": ["", "", "", "", "cancelled", ""], "posting": ["s1", "s2", "s3", "s4", "s5", ""]})
+    sales = pd.DataFrame({"cabinet_id": [2, 2, 2], "posting": ["s1", "s2", "s3"], "sold": [1, 1, 1],
+                          "returned": [0, 0, 1]})
+    cabs = pd.DataFrame({"id": [2], "marketplace": ["wb"], "name": ["WB"], "entity_id": [None]})
+    d = Data(cabinets=cabs, entities=e, tax_settings=e, ledger=e, ads=e, campaigns=e, orders=orders, products=e,
+             cogs=e, fixed=e, order_sales=sales)
+    t = orders_table(d).iloc[0]
+    assert (t["delivered_qty"], t["refused_qty"], t["cancelled_qty"], t["transit_qty"], t["unknown_qty"]) \
+        == (2, 1, 1, 1, 1)
+    assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.83     # a line without srid: share not cancelled
+    d.orders = orders.iloc[:5]
+    assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.5      # 2 of 4 with a known outcome
+
+
+def test_pace_finished_period_keeps_its_last_zero_days():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace
+    cur = pd.DataFrame({"date": pd.date_range("2026-09-01", "2026-09-29").date, "revenue": 1000 / 29})
+    prev = pd.DataFrame({"date": pd.date_range("2026-08-01", "2026-08-31").date, "revenue": 2000 / 31})
+    _, _, change = pace(cur, prev, date(2026, 9, 1), date(2026, 9, 30), date(2026, 8, 1), date(2026, 8, 31),
+                        today=date(2026, 10, 5))
+    assert round(change, 2) == -0.5                                   # the whole of August, not 1–29
+
+
+def test_cabinet_with_more_returns_than_sales_stays_visible():
+    from dashboard.views.summary_hero import cabinet_rows, cabinets_html, insights
+    f = _hero_facts()
+    f.loc[1, ["revenue", "profit"]] = [-200.0, -300.0]
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert [r["id"] for r in rows] == [1, 2] and rows[1]["per"] is None
+    html = cabinets_html(rows)
+    assert "Бета" in html and "возвратов больше продаж" in html and "−300 ₽" in html
+    assert all("Бета" not in i["title"] for i in insights(rows, []))
+
+
+def test_cabinets_table_with_no_positive_revenue():
+    from dashboard.views.summary_hero import CAB_SCALE, cabinet_rows, cabinet_scale, cabinets_html
+    f = _hero_facts()
+    f["revenue"], f["profit"] = [-100.0, -50.0], [-120.0, -60.0]
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert cabinet_scale(rows) == CAB_SCALE and "Альфа" in cabinets_html(rows)
+
+
+def test_pace_chart_shows_negative_revenue_below_zero():
+    from datetime import date
+    import re
+    import pandas as pd
+    from dashboard.views.summary_hero import H, PAD_B, PAD_T, pace_svg
+    days = pd.DataFrame({"date": [date(2026, 11, 1), date(2026, 11, 2)], "cum": [1000.0, -500.0]})
+    svg = pace_svg(days, days.iloc[0:0], 2, "x")
+    ys = [float(y) for y in re.search(r'<path d="M([^"V]+)" fill="none" stroke="#A9B6FF"', svg).group(1).split()[1::2]]
+    assert ys[1] == H - PAD_B and ys[0] == PAD_T                      # −500 at the bottom, 1 000 at the top
+    assert "−500" in svg or "-500" in svg
