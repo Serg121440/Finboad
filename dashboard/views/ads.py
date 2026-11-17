@@ -136,7 +136,7 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
                       column_config={
                           "Товар": st.column_config.TextColumn(pinned=True, width="large"),
                           "Артикул": st.column_config.TextColumn(pinned=True, width=120),
-                          "Кабинет": st.column_config.TextColumn(pinned=True, width="small"),
+                          "Кабинет": st.column_config.TextColumn(pinned=True, width=170),
                           "Расход, ₽": money, "Заказы, ₽": money, "Прибыль, ₽": money,
                           **{c: money for c in out.columns if "ДРР" in c}, "CTR, %": money,
                       })

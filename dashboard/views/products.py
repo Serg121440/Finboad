@@ -459,7 +459,7 @@ def render():
                                     if c in blank else st.column_config.Column(short_label(c, per), help=c))
                                 for c in shown.columns[len(head):]},
                              "Артикул": st.column_config.TextColumn(pinned=True),
-                             "Кабинет": st.column_config.TextColumn(pinned=True, width="small",
+                             "Кабинет": st.column_config.TextColumn(pinned=True, width=170,
                                                                     help="Площадка и кабинет"),
                              "Товар": st.column_config.TextColumn(pinned=True, width="medium",
                                                                   help="Полное название — в карточке товара"),
