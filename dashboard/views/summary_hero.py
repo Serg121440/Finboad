@@ -26,10 +26,16 @@ def _per(v: float) -> str:
     return ("−" if v < 0 else "+") + _pct(abs(v)) + " ₽"
 
 
-def pace(cur: pd.DataFrame, prev: pd.DataFrame, d0: date, d1: date, p0: date, p1: date):
+def finished(d1: date, today: date | None = None) -> bool:
+    """The period is over: its last day is before today (days without sales are real zeros then)."""
+    return d1 < (today or date.today())
+
+
+def pace(cur: pd.DataFrame, prev: pd.DataFrame, d0: date, d1: date, p0: date, p1: date,
+         today: date | None = None):
     """Revenue to date by day of the period: (days of this period, days of the previous one, change
-    or None). A period loaded to its last day is compared with the whole previous one, a period in
-    progress — with the same number of days. Days after the last loaded one are left out."""
+    or None). A finished period is compared with the whole previous one, a period in progress —
+    with as many days as are loaded. Days after the last loaded one are left out of the line."""
     days = pd.DataFrame({"date": pd.date_range(d0, d1).date})
     c = cur.groupby("date")["revenue"].sum() if not cur.empty else pd.Series(dtype=float)
     days["revenue"] = days["date"].map(c).fillna(0.0)
@@ -40,8 +46,7 @@ def pace(cur: pd.DataFrame, prev: pd.DataFrame, d0: date, d1: date, p0: date, p1
     before["cum"] = before["date"].map(pc).fillna(0.0).cumsum()
     change = None
     if len(days) and len(before):
-        whole = len(days) == (d1 - d0).days + 1
-        same = before["cum"].iloc[-1 if whole else min(len(days), len(before)) - 1]
+        same = before["cum"].iloc[-1 if finished(d1, today) else min(len(days), len(before)) - 1]
         if same > 0:
             change = days["cum"].iloc[-1] / same - 1
     if before.empty or before["cum"].iloc[-1] <= 0:
@@ -163,42 +168,47 @@ def strip_html(total: dict, limit: float) -> str:
 
 
 def cabinet_rows(facts: pd.DataFrame, cabinets: pd.DataFrame) -> list[dict]:
-    """Cabinets with revenue, biggest first: money, the result per 100 ₽ and where the 100 ₽ went."""
+    """Cabinets with revenue, biggest first: money, the result per 100 ₽ and where the 100 ₽ went.
+    A cabinet whose returns exceed its sales stays in with its money; per 100 ₽ it has nothing (None)."""
     rows = []
     for cid, part in facts.groupby("cabinet_id"):
         rev = part["revenue"].sum()
-        if rev <= 0:
+        if rev == 0 and part["profit"].sum() == 0:
             continue
         c = cabinets[cabinets["id"] == cid]
         mp = c.iloc[0]["marketplace"] if not c.empty else ""
+        ok = rev > 0
         rows.append({"id": cid, "name": _cab_name(cabinets, cid), "mp": mp, "revenue": rev,
-                     "profit": part["profit"].sum(), "per": part["profit"].sum() / rev * 100, "parts": per100(part)})
+                     "profit": part["profit"].sum(), "per": part["profit"].sum() / rev * 100 if ok else None,
+                     "parts": per100(part) if ok else None})
     return sorted(rows, key=lambda r: -r["revenue"])
 
 
 def cabinet_scale(rows: list[dict]) -> float:
     """One scale for every cabinet's bar and the 100 ₽ mark: wide enough for the costliest cabinet."""
-    return max(CAB_SCALE, *(r["parts"].clip(lower=0).sum() for r in rows))
+    return max(CAB_SCALE, *(r["parts"].clip(lower=0).sum() for r in rows if r["parts"] is not None))
 
 
 def cabinets_html(rows: list[dict]) -> str:
     color = dict(zip(PER100, PER100_COLORS))
-    top = max(r["revenue"] for r in rows)
+    top = max(max(r["revenue"] for r in rows), 1)
     scale = cabinet_scale(rows)
     legend = "".join(f'<span><i style="background:{c}"></i>{escape(k)}</span>' for k, c in color.items())
     body = ""
     for r in rows:
         tone = "pos" if r["profit"] >= 0 else "neg"
         seg = "".join(f'<i style="width:{max(v, 0) / scale * 100:.2f}%;background:{color[k]}" '
-                      f'title="{escape(k)}: {_pct(v)} ₽ из 100"></i>' for k, v in r["parts"].items())
+                      f'title="{escape(k)}: {_pct(v)} ₽ из 100"></i>' for k, v in r["parts"].items()) \
+            if r["parts"] is not None else '<span class="fb-sub">возвратов больше продаж</span>'
+        per = f'<span class="fb-chip {tone}">{_per(r["per"])}</span>' if r["per"] is not None else "—"
         tag = {"ozon": "OZ", "wb": "WB"}.get(r["mp"], "")
         body += (
             f'<div class="fb-cab"><div class="fb-cab-name"><span class="fb-mp {r["mp"]}">{tag}</span>'
             f'<span>{escape(r["name"].split(" · ", 1)[-1])}</span></div>'
-            f'<div><b>{rub(r["revenue"])}</b><div class="fb-track thin"><i style="width:{r["revenue"] / top * 100:.1f}%">'
+            f'<div><b>{rub(r["revenue"])}</b><div class="fb-track thin"><i style="width:{max(r["revenue"], 0) / top * 100:.1f}%">'
             f'</i></div></div><div class="fb-num {tone}">{_money(r["profit"], sign=True)}</div>'
             f'<div class="fb-stack">{seg}<u style="left:{100 / scale * 100:.2f}%"></u></div>'
-            f'<div class="fb-num"><span class="fb-chip {tone}">{_per(r["per"])}</span></div></div>')
+            f'<div class="fb-num">{per}</div></div>')
     return ('<div class="fb-panel"><div class="fb-between fb-wrap"><h4>Кабинеты</h4>'
             f'<div class="fb-legend">{legend}</div></div><div class="fb-scroll"><div class="fb-cabs">'
             '<div class="fb-cab head"><span>Кабинет</span><span>Выручка</span><span class="fb-num">Результат</span>'
@@ -211,8 +221,9 @@ def insights(rows: list[dict], issues: list) -> list[dict]:
     them, the cabinet that earns. Each: tone, tag, title, text and an optional (link, button)."""
     out = []
     multi = len(rows) > 1
+    rows = [r for r in rows if r["per"] is not None]      # per 100 ₽ needs positive revenue
     worst = min(rows, key=lambda r: r["per"]) if rows else None
-    if multi and worst["per"] < 0:
+    if multi and worst and worst["per"] < 0 and len(rows) > 1:
         big = worst["parts"].drop("Себестоимость", errors="ignore")
         others = [r["parts"][big.idxmax()] for r in rows if r is not worst]
         out.append({"tone": "neg", "tag": "Убыточный кабинет",
@@ -221,7 +232,7 @@ def insights(rows: list[dict], issues: list) -> list[dict]:
                             f"от {_pct(min(others), 0)} до {_pct(max(others), 0)} ₽."})
     best = max(rows, key=lambda r: r["per"]) if rows else None
     good = None
-    if multi and best["per"] > 0 and best is not worst:
+    if multi and best and best["per"] > 0 and best is not worst:
         plus = sum(r["profit"] > 0 for r in rows)
         good = {"tone": "pos", "tag": "В плюсе",
                 "title": (f"{best['name']} — единственный прибыльный кабинет: " if plus == 1 else
@@ -265,7 +276,7 @@ def render(f, res, total: dict, final: str, issues: list, limit: float,
     days, before, change = pace(cur, prev, f.date_from, f.date_to, p0, p1)
     pname = _period_name(p0, p1)
     svg = pace_svg(days, before, (f.date_to - f.date_from).days + 1, pname)
-    whole = len(days) == (f.date_to - f.date_from).days + 1
+    whole = finished(f.date_to)
     # a period in progress is compared with as many days of the previous one: name those days
     m = min(len(days), (p1 - p0).days + 1)
     compare = label if whole else f"к {p0:%d.%m}–{p0 + timedelta(days=max(m, 1) - 1):%d.%m} ({m} дн.)"

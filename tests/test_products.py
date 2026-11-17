@@ -414,7 +414,8 @@ def test_pace_compares_the_same_number_of_days():
     cur = pd.DataFrame({"date": [date(2026, 11, 1), date(2026, 11, 2)], "revenue": [100.0, 50.0]})
     prev = pd.DataFrame({"date": [date(2026, 10, 30), date(2026, 10, 31), date(2026, 10, 29)],
                          "revenue": [60.0, 500.0, 40.0]})
-    days, before, change = pace(cur, prev, date(2026, 11, 1), date(2026, 11, 3), date(2026, 10, 29), date(2026, 10, 31))
+    days, before, change = pace(cur, prev, date(2026, 11, 1), date(2026, 11, 3), date(2026, 10, 29), date(2026, 10, 31),
+                                today=date(2026, 11, 3))
     assert len(days) == 2                                             # the third day is not loaded yet
     assert round(change, 2) == 0.5                                    # 150 against 40 + 60
     svg = pace_svg(days, before, 3, "29.10–31.10")
@@ -554,3 +555,25 @@ def test_wb_orders_get_their_outcome_from_realization_sales():
     assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.83     # a line without srid: share not cancelled
     d.orders = orders.iloc[:5]
     assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.5      # 2 of 4 with a known outcome
+
+
+def test_pace_finished_period_keeps_its_last_zero_days():
+    from datetime import date
+    import pandas as pd
+    from dashboard.views.summary_hero import pace
+    cur = pd.DataFrame({"date": pd.date_range("2026-09-01", "2026-09-29").date, "revenue": 1000 / 29})
+    prev = pd.DataFrame({"date": pd.date_range("2026-08-01", "2026-08-31").date, "revenue": 2000 / 31})
+    _, _, change = pace(cur, prev, date(2026, 9, 1), date(2026, 9, 30), date(2026, 8, 1), date(2026, 8, 31),
+                        today=date(2026, 10, 5))
+    assert round(change, 2) == -0.5                                   # the whole of August, not 1–29
+
+
+def test_cabinet_with_more_returns_than_sales_stays_visible():
+    from dashboard.views.summary_hero import cabinet_rows, cabinets_html, insights
+    f = _hero_facts()
+    f.loc[1, ["revenue", "profit"]] = [-200.0, -300.0]
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert [r["id"] for r in rows] == [1, 2] and rows[1]["per"] is None
+    html = cabinets_html(rows)
+    assert "Бета" in html and "возвратов больше продаж" in html and "−300 ₽" in html
+    assert all("Бета" not in i["title"] for i in insights(rows, []))
