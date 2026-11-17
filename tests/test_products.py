@@ -520,3 +520,37 @@ def test_ad_page_issues_leave_out_profit_only_ones():
         == {"profit"}
     assert {i.scope for i in out if "не загружено" in i.text} == {"data"}
     assert {i.scope for i in out if "реклама не загружена" in i.text} == {"ads"}
+
+
+def test_ads_product_rows_without_daily_statistics():
+    import pandas as pd
+    from dashboard.views.ads import picks, product_rows
+    g = product_rows(_ads_named(), pd.DataFrame())
+    assert list(g["sku"]) == ["b", "a", "c"] and g["ordered_sum"].sum() == 0
+    assert picks(g, 10.0)["Расход без заказов"].sum() == 3
+    assert product_rows(_ads_named().iloc[:1], pd.DataFrame()).empty
+
+
+# ── выкуп WB по отчётам о реализации ─────────────────────────────────────────
+
+def test_wb_orders_get_their_outcome_from_realization_sales():
+    from datetime import date
+    import pandas as pd
+    from pnl.engine import Data, orders_table
+    from dashboard.views.products import buyout_rate
+    e = pd.DataFrame()
+    orders = pd.DataFrame({"cabinet_id": [2] * 6, "date": [date(2026, 11, 3)] * 6, "sku": ["850"] * 6,
+                           "qty": [1] * 6, "amount": [1000.0] * 6,
+                           "cancelled": [False, False, False, False, True, False],
+                           "status": ["", "", "", "", "cancelled", ""], "posting": ["s1", "s2", "s3", "s4", "s5", ""]})
+    sales = pd.DataFrame({"cabinet_id": [2, 2, 2], "posting": ["s1", "s2", "s3"], "sold": [1, 1, 1],
+                          "returned": [0, 0, 1]})
+    cabs = pd.DataFrame({"id": [2], "marketplace": ["wb"], "name": ["WB"], "entity_id": [None]})
+    d = Data(cabinets=cabs, entities=e, tax_settings=e, ledger=e, ads=e, campaigns=e, orders=orders, products=e,
+             cogs=e, fixed=e, order_sales=sales)
+    t = orders_table(d).iloc[0]
+    assert (t["delivered_qty"], t["refused_qty"], t["cancelled_qty"], t["transit_qty"], t["unknown_qty"]) \
+        == (2, 1, 1, 1, 1)
+    assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.83     # a line without srid: share not cancelled
+    d.orders = orders.iloc[:5]
+    assert round(buyout_rate(orders_table(d)).iloc[0], 2) == 0.5      # 2 of 4 with a known outcome

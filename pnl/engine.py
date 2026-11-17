@@ -49,13 +49,17 @@ class Data:
     ledger: pd.DataFrame              # cabinet_id, date, sku, category, amount, qty, posting, raw_type
     ads: pd.DataFrame                 # cabinet_id, date, sku, amount, kind, campaign_id
     campaigns: pd.DataFrame           # cabinet_id, campaign_id, type
-    orders: pd.DataFrame              # cabinet_id, date, sku, qty, amount, cancelled, status
+    orders: pd.DataFrame              # cabinet_id, date, sku, qty, amount, cancelled, status, posting
     products: pd.DataFrame            # cabinet_id, sku, article, name, category, vat10
     cogs: pd.DataFrame                # article, cabinet_id, valid_from, cost
     fixed: pd.DataFrame               # entity_id, cabinet_id, month, item, amount
     date_from: date = None
     date_to: date = None
     extra: dict = field(default_factory=dict)
+    # WB: what the realization reports say about each order (srid), whenever it was sold:
+    # cabinet_id, posting, sold (pcs sold), returned (pcs returned)
+    order_sales: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(
+        columns=["cabinet_id", "posting", "sold", "returned"]))
 
 
 NO_SKU = ""  # rows not tied to a product (общие расходы)
@@ -234,14 +238,33 @@ def fact_table(d: Data, bucket=_month) -> pd.DataFrame:
 
 
 ORDER_COLS = ["ordered_qty", "ordered_sum", "cancelled_qty", "cancelled_sum", "delivered_qty",
-              "transit_qty", "unknown_qty"]
+              "refused_qty", "transit_qty", "unknown_qty"]
+
+
+def wb_status(o: pd.DataFrame, sales: pd.DataFrame, wb_ids) -> pd.Series:
+    """WB order status from the realization reports, matched by srid: «delivered» — sold and kept,
+    «refused» — sold and returned, «transit» — not in a report yet. WB's orders API gives only
+    «cancelled»; lines without a srid stay unknown ("")."""
+    st = o["status"].fillna("").astype(str) if "status" in o else pd.Series("", index=o.index)
+    post = o["posting"].fillna("").astype(str) if "posting" in o else pd.Series("", index=o.index)
+    wb = o["cabinet_id"].isin(list(wb_ids)) & (st == "") & (post != "") & ~o["cancelled"].astype(bool)
+    if not wb.any():
+        return st
+    s = sales.groupby(["cabinet_id", "posting"])[["sold", "returned"]].sum() if not sales.empty else None
+    keys = list(zip(o.loc[wb, "cabinet_id"], post[wb]))
+    sold = s["sold"].reindex(keys).fillna(0).to_numpy() if s is not None else np.zeros(len(keys))
+    back = s["returned"].reindex(keys).fillna(0).to_numpy() if s is not None else np.zeros(len(keys))
+    st = st.copy()
+    st[wb] = np.select([(sold > 0) & (back >= sold), sold > 0], ["refused", "delivered"], "transit")
+    return st
 
 
 def order_outcome(o: pd.DataFrame) -> pd.Series:
-    """What became of each order line: delivered / cancelled / transit / unknown (no status stored)."""
+    """What became of each order line: delivered / refused (bought, then returned) / cancelled /
+    transit / unknown (no status stored)."""
     st = o["status"].fillna("") if "status" in o else pd.Series("", index=o.index)
-    return pd.Series(np.select([o["cancelled"].astype(bool), st == "delivered", st == ""],
-                               ["cancelled", "delivered", "unknown"], "transit"), index=o.index)
+    return pd.Series(np.select([o["cancelled"].astype(bool), st == "delivered", st == "refused", st == ""],
+                               ["cancelled", "delivered", "refused", "unknown"], "transit"), index=o.index)
 
 
 def orders_table(d: Data) -> pd.DataFrame:
@@ -249,16 +272,18 @@ def orders_table(d: Data) -> pd.DataFrame:
     if o.empty:
         return pd.DataFrame(columns=["cabinet_id", "month", "sku"] + ORDER_COLS)
     o["month"] = _month(o["date"])
+    wb_ids = d.cabinets.loc[d.cabinets["marketplace"] == "wb", "id"] if not d.cabinets.empty else []
+    o["status"] = wb_status(o, d.order_sales, wb_ids)
     out = order_outcome(o)
     o["c_qty"] = np.where(out == "cancelled", o["qty"], 0)
     o["c_sum"] = np.where(out == "cancelled", o["amount"], 0)
-    for k in ("delivered", "transit", "unknown"):
+    for k in ("delivered", "refused", "transit", "unknown"):
         o[f"{k}_qty"] = np.where(out == k, o["qty"], 0)
     return o.groupby(["cabinet_id", "month", "sku"], as_index=False).agg(
         ordered_qty=("qty", "sum"), ordered_sum=("amount", "sum"),
         cancelled_qty=("c_qty", "sum"), cancelled_sum=("c_sum", "sum"),
-        delivered_qty=("delivered_qty", "sum"), transit_qty=("transit_qty", "sum"),
-        unknown_qty=("unknown_qty", "sum"))
+        delivered_qty=("delivered_qty", "sum"), refused_qty=("refused_qty", "sum"),
+        transit_qty=("transit_qty", "sum"), unknown_qty=("unknown_qty", "sum"))
 
 
 # ── taxes ────────────────────────────────────────────────────────────────────

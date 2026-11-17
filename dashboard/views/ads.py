@@ -37,10 +37,13 @@ def product_rows(named: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
     """Products with ad money: spend tied to the product, both ДРР, orders, CTR and profit.
     named: summarize by (cabinet_id, sku) with names; daily: ads_daily of the period."""
     g = named[(named["sku"] != NO_SKU) & (named["ads"] != 0)].copy()
-    stats = (daily[daily["sku"] != NO_SKU].groupby(["cabinet_id", "sku"])[["ordered_sum", "views", "clicks"]].sum()
-             if not daily.empty else pd.DataFrame(columns=["ordered_sum", "views", "clicks"]))
-    g = g.merge(stats, left_on=["cabinet_id", "sku"], right_index=True, how="left")
-    g[["ordered_sum", "views", "clicks"]] = g[["ordered_sum", "views", "clicks"]].fillna(0)
+    cols = ["ordered_sum", "views", "clicks"]
+    if daily.empty:                         # accruals without ad statistics or orders
+        g = g.assign(**{c: 0.0 for c in cols})
+    else:
+        stats = daily[daily["sku"] != NO_SKU].groupby(["cabinet_id", "sku"])[cols].sum()
+        g = g.merge(stats, left_on=["cabinet_id", "sku"], right_index=True, how="left")
+    g[cols] = g[cols].fillna(0)
     g["spend"] = -g["ads"]
     g["drr"] = np.where(g["revenue"] > 0, g["spend"] / g["revenue"].where(g["revenue"] > 0) * 100, np.nan)
     g["drr_orders"] = np.where(g["ordered_sum"] > 0, g["spend"] / g["ordered_sum"].where(g["ordered_sum"] > 0) * 100,
