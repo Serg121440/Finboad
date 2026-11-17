@@ -6,9 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, Filters, ads_daily_for, data_version, pct, picked_now, result_for, rub, period_filters, summarize,
+    MP_NAMES, Filters, ads_daily_for, data_version, pct, result_for, rub, period_filters, summarize,
     with_names,
 )
+from dashboard import selection
 from dashboard.quality import quality_block, status_line
 from dashboard.theme import card
 from dashboard.views.products import cabinet_tag, drr_limit
@@ -133,9 +134,10 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
     # «localized»: the viewer's own digit grouping and decimal comma
     money = st.column_config.NumberColumn(format="localized")
     out = out.round({c: 1 for c in out.columns if "ДРР" in c} | {"CTR, %": 2} | {c: 0 for c in out.columns if "₽" in c})
+    slot = st.container()             # the selection line: above the table, filled once the ticks are known
     ev = st.dataframe(out.assign(Товар=out["Товар"].map(short_name)), hide_index=True, use_container_width=True,
                       height=min(36 * len(out) + 40, 520),
-                      on_select="rerun", selection_mode="single-row", key=f"ads_tbl_{pick}",
+                      on_select="rerun", selection_mode="multi-row", key=selection.table_key("ads_sel", (pick,)),
                       column_config={
                           "Товар": st.column_config.TextColumn(pinned=True, width="large"),
                           "Артикул": st.column_config.TextColumn(pinned=True, width=120),
@@ -143,11 +145,19 @@ def _table(g: pd.DataFrame, limit: float, daily: pd.DataFrame):
                           "Расход, ₽": money, "Заказы, ₽": money, "Прибыль, ₽": money,
                           **{c: money for c in out.columns if "ДРР" in c}, "CTR, %": money,
                       })
-    st.caption("Расход здесь — реклама, отнесённая к конкретному товару. Общая реклама в таблицу не входит. "
-               "Нажмите на строку — откроется разбор товара по дням.")
-    rows = ev.selection.rows if ev and ev.selection else []
-    if picked_now("ads", (pick, rows[0]) if rows else None):
+    rows = [r for r in (ev.selection.rows if ev and ev.selection else []) if r < len(v)]
+    sel = v.iloc[rows]
+    spend, orders = sel["spend"].sum(), sel["ordered_sum"].sum()
+    action = selection.bar(
+        slot, "ads_sel", len(rows),
+        f"расход {rub(spend)} · заказы {rub(orders)} · "
+        f"{DRR_NAMES['drr_orders']} {pct(spend / orders) if orders > 0 else '—'}",
+        "разбор", lambda: to_xlsx([("Реклама", out.iloc[rows])]), "реклама_выбранные.xlsx")
+    st.caption("Расход здесь — реклама, отнесённая к конкретному товару. Общая реклама в таблицу не входит.")
+    if action == "open":
         _product_dialog(v.iloc[rows[0]].to_dict(), daily, limit)
+    elif action == "compare":
+        selection.compare_dialog(selection.compare_frame(out.iloc[rows]))
 
 
 def _frame(v: pd.DataFrame) -> pd.DataFrame:
