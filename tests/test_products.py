@@ -639,3 +639,19 @@ def test_cost_queue_clash_uses_the_normalized_article():
     add.loc[1, "Себестоимость, ₽/шт"] = 100.0
     rows, clash = queue_prices(add)
     assert clash == [] and len(rows) == 1
+
+
+def test_a_row_opens_its_window_once():
+    import streamlit as st
+    from dashboard.common import picked_now
+    st.session_state.clear()
+    assert picked_now("t", ("k", 3)) is True
+    assert picked_now("t", ("k", 3)) is False          # any other rerun with the same selection
+    assert picked_now("t", None) is False              # deselected
+    assert picked_now("t", ("k", 3)) is True           # picked again
+
+
+def test_plural_forms():
+    from dashboard.common import plural
+    assert [plural(n, "товар", "товара", "товаров") for n in (1, 2, 5, 11, 21, 104)] == \
+        ["товар", "товара", "товаров", "товаров", "товар", "товара"]

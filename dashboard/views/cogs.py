@@ -10,7 +10,9 @@ from sqlalchemy import delete, select
 from core.db import session
 from core.crypto import decrypt
 from core.models import Cabinet, CostOfGoods, LedgerEntry, Product
-from dashboard.common import cabinets_df, cabinet_label, data_changed, period_filters, result_for, with_names
+from dashboard.common import (
+    cabinets_df, cabinet_label, data_changed, period_filters, plural, result_for, with_names,
+)
 from dashboard.views.products import short_name
 from pnl.wb import normalize_article
 from sources.ozon_api import SellerClient
@@ -298,7 +300,7 @@ def _queue(view: pd.DataFrame, labels: dict, back: dict):
                    icon=":material/check_circle:")
         return
     q = queue_rows(with_names(miss, f.cabinets, res.products))
-    st.caption(f"{len(q)} товаров, {q['qty'].sum():.0f} шт. на {q['revenue'].sum():,.0f} ₽ выручки — прибыль по ним "
+    st.caption(f"{len(q)} {plural(len(q), 'товар', 'товара', 'товаров')}, {q['qty'].sum():.0f} шт. на {q['revenue'].sum():,.0f} ₽ выручки — прибыль по ним "
                "завышена. Введите цену и сохраните: отчёты пересчитаются. Цена «для всех кабинетов» подойдёт и "
                "другим кабинетам с этим артикулом.".replace(",", " "))
     fillable = q[q["article"] != ""]
@@ -318,7 +320,7 @@ def _queue(view: pd.DataFrame, labels: dict, back: dict):
             "Выручка, ₽": st.column_config.NumberColumn(format="localized"),
         })
     add = edited[edited["Себестоимость, ₽/шт"].notna()]
-    if st.button(f"Сохранить {len(add)} цен" if len(add) else "Сохранить", type="primary",
+    if st.button(f"Сохранить {len(add)} {plural(len(add), 'цену', 'цены', 'цен')}" if len(add) else "Сохранить", type="primary",
                  disabled=add.empty, key="cogs_queue_save"):
         rows, clash = queue_prices(add)
         if clash:

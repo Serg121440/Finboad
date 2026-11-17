@@ -13,8 +13,8 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.common import (
-    MP_NAMES, Filters, daily_totals_for, data_version, hide_cogs_columns, result_for, period_filters, rub,
-    summarize, with_names,
+    MP_NAMES, Filters, daily_totals_for, data_version, hide_cogs_columns, picked_now, result_for, period_filters,
+    rub, summarize, with_names,
 )
 from dashboard.quality import attention_issues, quality_block, status_line
 from dashboard.views.products_overview import NO_SALES, overview, previous_period
@@ -464,7 +464,7 @@ def render():
                              "Товар": st.column_config.TextColumn(pinned=True, width="medium",
                                                                   help="Полное название — в карточке товара"),
                          })
-    st.caption(f"Товаров: {len(out)}. Нажмите на строку — ниже откроется карточка товара.")
+    st.caption(f"Товаров: {len(out)}. Нажмите на строку — откроется карточка товара.")
     name = f"товары_{base.lower()}_{f.date_from:%Y%m%d}_{f.date_to:%Y%m%d}"
     header = [f"Товары {f.date_from:%d.%m.%Y} — {f.date_to:%d.%m.%Y}, показатели «на единицу» — "
               f"{BASES[base][1]}", status_line(issues)]
@@ -487,8 +487,9 @@ def render():
             "в кабинете, название подтянется при следующей загрузке.")
 
     rows = event.selection.rows if event and event.selection else []
-    if rows and rows[0] < len(v):
-        product_card(v.iloc[rows[0]], f, base)
+    pick = (sel_key, rows[0]) if rows and rows[0] < len(v) else None
+    if picked_now("products", pick):
+        _card_dialog(v.iloc[rows[0]], f, base)
 
     _reconciliation(before, g)
 
@@ -562,13 +563,18 @@ def _hide_cogs_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@st.dialog("Карточка товара", width="large")
+def _card_dialog(row: pd.Series, f, base: str):
+    """The card over the table: the place in the table stays, the same on a phone and a desktop."""
+    product_card(row, f, base)
+
+
 def product_card(row: pd.Series, f, base: str):
     from dashboard.common import _loaded_intervals, daily_for, data_version
     from dashboard.quality import wb_report_ends
     from dashboard.theme import apply_plotly_theme, card, DANGER, INFO, SUCCESS, WB_ACCENT
     import plotly.graph_objects as go
 
-    st.divider()
     with card():
         st.subheader(row["name"])
         st.caption(f"Артикул {row['article'] or '—'} · SKU {row['sku']} · {MP_NAMES.get(row['marketplace'], '')} · "

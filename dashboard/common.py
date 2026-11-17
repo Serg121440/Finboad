@@ -357,6 +357,23 @@ def _load_block(col, d0: date, d1: date, ids: list[int], names: dict[int, str]):
     _load_status(ids)
 
 
+def picked_now(name: str, pick) -> bool:
+    """A table row opens its window once: on the rerun where the selection changed. The selection
+    stays after the window is closed, so without this any later click on the page opened it again."""
+    key = f"_picked_{name}"
+    last = st.session_state.get(key)
+    st.session_state[key] = pick
+    return pick is not None and pick != last
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """«1 товар», «2 товара», «5 товаров»."""
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    return few if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else many
+
+
 # ── calculation (cached) ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner="Считаю…")
