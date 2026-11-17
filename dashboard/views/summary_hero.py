@@ -186,7 +186,7 @@ def cabinet_rows(facts: pd.DataFrame, cabinets: pd.DataFrame) -> list[dict]:
 
 def cabinet_scale(rows: list[dict]) -> float:
     """One scale for every cabinet's bar and the 100 ₽ mark: wide enough for the costliest cabinet."""
-    return max(CAB_SCALE, *(r["parts"].clip(lower=0).sum() for r in rows if r["parts"] is not None))
+    return max([CAB_SCALE, *(r["parts"].clip(lower=0).sum() for r in rows if r["parts"] is not None)])
 
 
 def cabinets_html(rows: list[dict]) -> str:

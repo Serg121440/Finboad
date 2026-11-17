@@ -577,3 +577,11 @@ def test_cabinet_with_more_returns_than_sales_stays_visible():
     html = cabinets_html(rows)
     assert "Бета" in html and "возвратов больше продаж" in html and "−300 ₽" in html
     assert all("Бета" not in i["title"] for i in insights(rows, []))
+
+
+def test_cabinets_table_with_no_positive_revenue():
+    from dashboard.views.summary_hero import CAB_SCALE, cabinet_rows, cabinet_scale, cabinets_html
+    f = _hero_facts()
+    f["revenue"], f["profit"] = [-100.0, -50.0], [-120.0, -60.0]
+    rows = cabinet_rows(f, _hero_cabinets())
+    assert cabinet_scale(rows) == CAB_SCALE and "Альфа" in cabinets_html(rows)
